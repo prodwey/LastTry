@@ -1,4 +1,5 @@
 import SwiftUI
+import FirebaseAuth
 
 struct LoginView: View {
     @EnvironmentObject var appState: AppState
@@ -6,7 +7,9 @@ struct LoginView: View {
     
     @State private var email = ""
     @State private var password = ""
-    @State private var showInvalidCredentialsAlert = false
+    @State private var showErrorAlert = false
+    @State private var errorMessage = ""
+    @State private var isLoggingIn = false
     
     var body: some View {
         ZStack {
@@ -34,7 +37,12 @@ struct LoginView: View {
                     HStack {
                         Spacer()
                         Button("Forgot Password?") {
-                            // Would normally navigate to password reset
+                            if !email.isEmpty {
+                                sendPasswordReset()
+                            } else {
+                                errorMessage = "Please enter your email address first"
+                                showErrorAlert = true
+                            }
                         }
                         .foregroundColor(.appPrimary)
                         .font(.caption)
@@ -43,16 +51,20 @@ struct LoginView: View {
                 .padding(.horizontal, 20)
                 
                 // Login button
-                Button("Log In") {
-                    appState.userManager.login(email: email, password: password)
-                    
-                    if !appState.userManager.isLoggedIn {
-                        showInvalidCredentialsAlert = true
+                Button {
+                    login()
+                } label: {
+                    if isLoggingIn {
+                        ProgressView()
+                            .progressViewStyle(CircularProgressViewStyle(tint: .white))
+                    } else {
+                        Text("Log In")
                     }
                 }
                 .buttonStyle(PrimaryButtonStyle())
                 .frame(maxWidth: 280)
                 .padding(.top, 40)
+                .disabled(email.isEmpty || password.isEmpty || isLoggingIn)
                 
                 // Sign up option
                 Button("Don't have an account? Sign Up") {
@@ -67,10 +79,52 @@ struct LoginView: View {
         }
         .navigationBarTitle("Log In", displayMode: .inline)
         .navigationBarBackButtonHidden(false)
-        .alert("Invalid Credentials", isPresented: $showInvalidCredentialsAlert) {
-            Button("OK", role: .cancel) { }
-        } message: {
-            Text("Please check your email and password and try again.")
+        .alert(isPresented: $showErrorAlert) {
+            Alert(
+                title: Text("Error"),
+                message: Text(errorMessage),
+                dismissButton: .default(Text("OK"))
+            )
+        }
+        .onChange(of: appState.userManager.authError) { newError in
+            if let error = newError {
+                errorMessage = error
+                showErrorAlert = true
+                isLoggingIn = false
+            }
+        }
+        .onChange(of: appState.isAuthenticated) { isAuthenticated in
+            print("LoginView: App authentication state changed to \(isAuthenticated)")
+            if isAuthenticated {
+                isLoggingIn = false
+            }
+        }
+    }
+    
+    private func login() {
+        guard !email.isEmpty, !password.isEmpty else {
+            errorMessage = "Please enter both email and password"
+            showErrorAlert = true
+            return
+        }
+        
+        isLoggingIn = true
+        
+        // Attempt login
+        print("LoginView: Attempting to log in with email: \(email)")
+        appState.userManager.login(email: email, password: password)
+        
+        // Auth state will be handled by listeners
+    }
+    
+    private func sendPasswordReset() {
+        Auth.auth().sendPasswordReset(withEmail: email) { error in
+            if let error = error {
+                errorMessage = "Could not send password reset: \(error.localizedDescription)"
+            } else {
+                errorMessage = "Password reset email sent. Please check your inbox."
+            }
+            showErrorAlert = true
         }
     }
 }
