@@ -1,4 +1,5 @@
 import SwiftUI
+import FirebaseAuth
 
 struct SignUpView: View {
     @EnvironmentObject var appState: AppState
@@ -8,53 +9,55 @@ struct SignUpView: View {
     @State private var email = ""
     @State private var password = ""
     @State private var confirmPassword = ""
-    @State private var dateOfBirth = Date()
-    @State private var selectedRole = UserRole.artist
+    @State private var dateOfBirth = Calendar.current.date(byAdding: .year, value: -18, to: Date()) ?? Date()
+    @State private var role: UserRole = .artist
     
-    @State private var showPasswordMismatchAlert = false
-    @State private var showDatePicker = false
-    @State private var showEmptyFieldsAlert = false
-    @State private var showInvalidEmailAlert = false
-    @State private var showAuthErrorAlert = false
+    @State private var showError = false
+    @State private var errorMessage = ""
+    @State private var isSigningUp = false
+    
+    @State private var isDatePickerVisible = false
     
     var body: some View {
         ZStack {
-            Color.appBackground
-                .ignoresSafeArea()
+            Color.appBackground.ignoresSafeArea()
             
             ScrollView {
                 VStack(spacing: 24) {
                     // Header
                     VStack(spacing: 8) {
-                        HeadingText(text: "Create Your Account")
-                        BodyText(text: "Join Studio Manager to streamline your music production")
+                        HeadingText(text: "Create Account")
+                        BodyText(text: "Sign up to start managing your studio sessions")
                     }
                     .padding(.top, 40)
-                    .padding(.bottom, 20)
+                    .padding(.bottom, 32)
                     
                     // Form fields
-                    VStack(spacing: 16) {
+                    VStack(spacing: 24) {
                         // Name
-                        AppTextField(title: "Name", placeholder: "Enter your name", text: $name)
+                        AppTextField(title: "Full Name", placeholder: "Enter your name", text: $name)
                         
                         // Email
                         AppTextField(title: "Email", placeholder: "Enter your email", text: $email)
+                            .keyboardType(.emailAddress)
+                            .autocapitalization(.none)
+                            .disableAutocorrection(true)
                         
                         // Password
-                        AppTextField(title: "Password", placeholder: "Enter your password", text: $password, isSecure: true)
+                        AppTextField(title: "Password", placeholder: "Create a password", text: $password, isSecure: true)
                         
-                        // Confirm password
-                        AppTextField(title: "Confirm Password", placeholder: "Re-enter your password", text: $confirmPassword, isSecure: true)
+                        // Confirm Password
+                        AppTextField(title: "Confirm Password", placeholder: "Confirm your password", text: $confirmPassword, isSecure: true)
                         
                         // Date of Birth
-                        VStack(alignment: .leading, spacing: 4) {
+                        VStack(alignment: .leading, spacing: 8) {
                             Text("Date of Birth")
-                                .font(.caption)
-                                .foregroundColor(.gray)
+                                .font(.system(size: 14, weight: .medium))
+                                .foregroundColor(.appTextSecondary)
                             
-                            Button(action: {
-                                showDatePicker.toggle()
-                            }) {
+                            Button {
+                                isDatePickerVisible.toggle()
+                            } label: {
                                 HStack {
                                     Text(dateOfBirth.formatted(date: .long, time: .omitted))
                                         .foregroundColor(.appTextPrimary)
@@ -62,139 +65,163 @@ struct SignUpView: View {
                                     Spacer()
                                     
                                     Image(systemName: "calendar")
-                                        .foregroundColor(.gray)
+                                        .foregroundColor(.appTextSecondary)
                                 }
                                 .padding()
-                                .background(Color.appSurfaceBackground)
-                                .cornerRadius(8)
+                                .background(Color.appElevatedBackground)
+                                .cornerRadius(12)
                                 .overlay(
-                                    RoundedRectangle(cornerRadius: 8)
+                                    RoundedRectangle(cornerRadius: 12)
+                                        .stroke(Color.appDivider, lineWidth: 1)
+                                )
+                            }
+                            
+                            if isDatePickerVisible {
+                                DatePicker(
+                                    "Select your date of birth",
+                                    selection: $dateOfBirth,
+                                    in: ...Date(),
+                                    displayedComponents: .date
+                                )
+                                .datePickerStyle(GraphicalDatePickerStyle())
+                                .frame(maxHeight: 400)
+                                .padding()
+                                .background(Color.appElevatedBackground)
+                                .cornerRadius(12)
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: 12)
                                         .stroke(Color.appDivider, lineWidth: 1)
                                 )
                             }
                         }
                         
-                        if showDatePicker {
-                            DatePicker("", selection: $dateOfBirth, displayedComponents: .date)
-                                .datePickerStyle(.graphical)
-                                .padding()
-                                .background(Color.appSurfaceBackground)
-                                .cornerRadius(12)
-                                .shadow(color: Color.black.opacity(0.1), radius: 5, x: 0, y: 2)
-                        }
-                        
-                        // Role
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text("Role")
-                                .font(.caption)
+                        // Role selector
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text("I am a...")
+                                .font(.system(size: 14, weight: .medium))
                                 .foregroundColor(.appTextSecondary)
                             
-                            Picker("Select your role", selection: $selectedRole) {
-                                ForEach(UserRole.allCases) { role in
-                                    Text(role.rawValue).tag(role)
+                            HStack(spacing: 12) {
+                                ForEach(UserRole.allCases.filter { $0 != .admin }) { userRole in
+                                    Button {
+                                        role = userRole
+                                    } label: {
+                                        Text(userRole.rawValue)
+                                            .font(.system(size: 14, weight: .medium))
+                                            .foregroundColor(role == userRole ? .white : .appTextPrimary)
+                                            .padding(.vertical, 12)
+                                            .padding(.horizontal, 16)
+                                            .frame(maxWidth: .infinity)
+                                            .background(role == userRole ? Color.appPrimary : Color.appElevatedBackground)
+                                            .cornerRadius(12)
+                                            .overlay(
+                                                RoundedRectangle(cornerRadius: 12)
+                                                    .stroke(Color.appDivider, lineWidth: role == userRole ? 0 : 1)
+                                            )
+                                    }
                                 }
                             }
-                            .pickerStyle(.segmented)
-                            .padding(.vertical, 8)
                         }
                     }
                     .padding(.horizontal, 20)
                     
                     // Sign up button
-                    Button("Create Account") {
+                    Button {
                         signUp()
+                    } label: {
+                        if isSigningUp {
+                            ProgressView()
+                                .progressViewStyle(CircularProgressViewStyle(tint: .white))
+                        } else {
+                            Text("Create Account")
+                        }
                     }
                     .buttonStyle(PrimaryButtonStyle())
                     .frame(maxWidth: 280)
-                    .padding(.top, 20)
-                    .disabled(appState.authService.isLoading)
-                    .overlay(
-                        Group {
-                            if appState.authService.isLoading {
-                                ProgressView()
-                                    .progressViewStyle(CircularProgressViewStyle(tint: .white))
-                            }
-                        }
-                    )
+                    .padding(.top, 32)
+                    .disabled(name.isEmpty || email.isEmpty || password.isEmpty || confirmPassword.isEmpty || isSigningUp)
                     
-                    // Back to login
+                    // Login option
                     Button("Already have an account? Log In") {
                         dismiss()
                     }
                     .foregroundColor(.appPrimary)
                     .padding(.top, 8)
-                    
-                    Spacer()
+                    .padding(.bottom, 40)
                 }
-                .padding()
             }
         }
         .navigationBarTitle("Sign Up", displayMode: .inline)
         .navigationBarBackButtonHidden(false)
-        .alert("Passwords Don't Match", isPresented: $showPasswordMismatchAlert) {
-            Button("OK", role: .cancel) { }
-        } message: {
-            Text("Please make sure your passwords match.")
+        .alert(isPresented: $showError) {
+            Alert(
+                title: Text("Error"),
+                message: Text(errorMessage),
+                dismissButton: .default(Text("OK"))
+            )
         }
-        .alert("Missing Information", isPresented: $showEmptyFieldsAlert) {
-            Button("OK", role: .cancel) { }
-        } message: {
-            Text("Please fill in all required fields.")
+        .onChange(of: appState.userManager.authError) { newError in
+            if let error = newError {
+                errorMessage = error
+                showError = true
+                isSigningUp = false
+            }
         }
-        .alert("Invalid Email", isPresented: $showInvalidEmailAlert) {
-            Button("OK", role: .cancel) { }
-        } message: {
-            Text("Please enter a valid email address.")
-        }
-        .alert("Authentication Error", isPresented: $showAuthErrorAlert) {
-            Button("OK", role: .cancel) { }
-        } message: {
-            Text(appState.authService.authError?.localizedDescription ?? "An unknown error occurred")
-        }
-        .onChange(of: appState.authService.authError) { error in
-            showAuthErrorAlert = (error != nil)
+        .onChange(of: appState.isAuthenticated) { isAuthenticated in
+            print("SignUpView: App authentication state changed to \(isAuthenticated)")
+            if isAuthenticated {
+                isSigningUp = false
+            }
         }
     }
     
     private func signUp() {
-        // Validate input fields
-        if name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
-           email.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
-           password.isEmpty {
-            showEmptyFieldsAlert = true
+        // Validate inputs
+        guard !name.isEmpty else {
+            errorMessage = "Please enter your name"
+            showError = true
             return
         }
         
-        // Validate email format
-        if !isValidEmail(email) {
-            showInvalidEmailAlert = true
+        guard !email.isEmpty, email.contains("@") else {
+            errorMessage = "Please enter a valid email address"
+            showError = true
             return
         }
         
-        // Check passwords match
-        if password != confirmPassword {
-            showPasswordMismatchAlert = true
+        guard !password.isEmpty, password.count >= 6 else {
+            errorMessage = "Password must be at least 6 characters"
+            showError = true
             return
         }
         
-        // Proceed with Firebase sign up
-        Task {
-            await appState.authService.signUp(
-                name: name,
-                email: email,
-                password: password,
-                dateOfBirth: dateOfBirth,
-                role: selectedRole
-            )
-            // The auth state listener will handle updating UI if successful
+        guard password == confirmPassword else {
+            errorMessage = "Passwords do not match"
+            showError = true
+            return
         }
-    }
-    
-    // Email validation helper
-    private func isValidEmail(_ email: String) -> Bool {
-        let emailRegex = #"^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$"#
-        let emailPredicate = NSPredicate(format: "SELF MATCHES %@", emailRegex)
-        return emailPredicate.evaluate(with: email)
+        
+        // Check age
+        let calendar = Calendar.current
+        let ageComponents = calendar.dateComponents([.year], from: dateOfBirth, to: Date())
+        guard let age = ageComponents.year, age >= 13 else {
+            errorMessage = "You must be at least 13 years old to create an account"
+            showError = true
+            return
+        }
+        
+        isSigningUp = true
+        
+        // Create account
+        appState.userManager.signUp(
+            name: name,
+            email: email,
+            password: password,
+            dateOfBirth: dateOfBirth,
+            role: role
+        )
+        
+        // Auth state will be handled by listeners
     }
 }
 

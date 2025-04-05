@@ -12,15 +12,24 @@ struct ContentView: View {
     
     var body: some View {
         Group {
-            if appState.authService.isLoggedIn {
+            if appState.isAuthenticated {
                 MainTabView()
                     .preferredColorScheme(.light)
+                    .onAppear {
+                        print("ContentView: MainTabView appeared, user is authenticated")
+                    }
             } else {
                 WelcomeView()
                     .preferredColorScheme(.light)
+                    .onAppear {
+                        print("ContentView: WelcomeView appeared, user is NOT authenticated")
+                    }
             }
         }
         .preferredColorScheme(.light) // Enforce light mode at the root level
+        .onReceive(appState.$isAuthenticated) { newValue in
+            print("ContentView: Received isAuthenticated change to \(newValue)")
+        }
     }
 }
 

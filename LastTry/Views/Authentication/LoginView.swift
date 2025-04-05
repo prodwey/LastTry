@@ -1,4 +1,5 @@
 import SwiftUI
+import FirebaseAuth
 
 struct LoginView: View {
     @EnvironmentObject var appState: AppState
@@ -6,9 +7,9 @@ struct LoginView: View {
     
     @State private var email = ""
     @State private var password = ""
-    @State private var showAuthErrorAlert = false
-    @State private var showResetPasswordAlert = false
-    @State private var resetEmailSent = false
+    @State private var showErrorAlert = false
+    @State private var errorMessage = ""
+    @State private var isLoggingIn = false
     
     var body: some View {
         ZStack {
@@ -36,11 +37,11 @@ struct LoginView: View {
                     HStack {
                         Spacer()
                         Button("Forgot Password?") {
-                            if email.isEmpty {
-                                // Show alert to enter email first
-                                showResetPasswordAlert = true
-                            } else {
+                            if !email.isEmpty {
                                 sendPasswordReset()
+                            } else {
+                                errorMessage = "Please enter your email address first"
+                                showErrorAlert = true
                             }
                         }
                         .foregroundColor(.appPrimary)
@@ -50,21 +51,20 @@ struct LoginView: View {
                 .padding(.horizontal, 20)
                 
                 // Login button
-                Button("Log In") {
+                Button {
                     login()
+                } label: {
+                    if isLoggingIn {
+                        ProgressView()
+                            .progressViewStyle(CircularProgressViewStyle(tint: .white))
+                    } else {
+                        Text("Log In")
+                    }
                 }
                 .buttonStyle(PrimaryButtonStyle())
                 .frame(maxWidth: 280)
                 .padding(.top, 40)
-                .disabled(appState.authService.isLoading)
-                .overlay(
-                    Group {
-                        if appState.authService.isLoading {
-                            ProgressView()
-                                .progressViewStyle(CircularProgressViewStyle(tint: .white))
-                        }
-                    }
-                )
+                .disabled(email.isEmpty || password.isEmpty || isLoggingIn)
                 
                 // Sign up option
                 Button("Don't have an account? Sign Up") {
@@ -79,41 +79,52 @@ struct LoginView: View {
         }
         .navigationBarTitle("Log In", displayMode: .inline)
         .navigationBarBackButtonHidden(false)
-        .alert("Authentication Error", isPresented: $showAuthErrorAlert) {
-            Button("OK", role: .cancel) { }
-        } message: {
-            Text(appState.authService.authError?.localizedDescription ?? "Invalid credentials. Please try again.")
+        .alert(isPresented: $showErrorAlert) {
+            Alert(
+                title: Text("Error"),
+                message: Text(errorMessage),
+                dismissButton: .default(Text("OK"))
+            )
         }
-        .alert("Password Reset", isPresented: $showResetPasswordAlert) {
-            Button("Cancel", role: .cancel) { }
-            Button("Send") {
-                sendPasswordReset()
-            }
-        } message: {
-            if resetEmailSent {
-                Text("Password reset email has been sent.")
-            } else {
-                Text("Please enter your email address to receive a password reset link.")
+        .onChange(of: appState.userManager.authError) { newError in
+            if let error = newError {
+                errorMessage = error
+                showErrorAlert = true
+                isLoggingIn = false
             }
         }
-        .onChange(of: appState.authService.authError) { error in
-            showAuthErrorAlert = (error != nil)
+        .onChange(of: appState.isAuthenticated) { isAuthenticated in
+            print("LoginView: App authentication state changed to \(isAuthenticated)")
+            if isAuthenticated {
+                isLoggingIn = false
+            }
         }
     }
     
     private func login() {
-        Task {
-            await appState.authService.signIn(email: email, password: password)
-            // The auth state listener will handle updating UI if successful
+        guard !email.isEmpty, !password.isEmpty else {
+            errorMessage = "Please enter both email and password"
+            showErrorAlert = true
+            return
         }
+        
+        isLoggingIn = true
+        
+        // Attempt login
+        print("LoginView: Attempting to log in with email: \(email)")
+        appState.userManager.login(email: email, password: password)
+        
+        // Auth state will be handled by listeners
     }
     
     private func sendPasswordReset() {
-        Task {
-            resetEmailSent = await appState.authService.sendPasswordReset(to: email)
-            if resetEmailSent {
-                showResetPasswordAlert = true
+        Auth.auth().sendPasswordReset(withEmail: email) { error in
+            if let error = error {
+                errorMessage = "Could not send password reset: \(error.localizedDescription)"
+            } else {
+                errorMessage = "Password reset email sent. Please check your inbox."
             }
+            showErrorAlert = true
         }
     }
 }

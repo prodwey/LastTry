@@ -1,5 +1,7 @@
 import Foundation
 import CoreData
+import Firebase
+import FirebaseAuth
 
 enum UserRole: String, CaseIterable, Identifiable, Codable {
     case producer = "Producer"
@@ -36,6 +38,10 @@ extension User: CoreDataConvertible {
 class UserManager: ObservableObject {
     @Published var currentUser: User?
     @Published var isLoggedIn: Bool = false
+    @Published var authError: String? = nil
+    
+    // Reference to app state for synchronization
+    weak var appState: AppState?
     
     private let userDefaultsKey = "currentUser"
     private let isLoggedInKey = "isLoggedIn"
@@ -44,31 +50,37 @@ class UserManager: ObservableObject {
     private let coreDataManager = CoreDataManager.shared
     
     init() {
-        loadUserData()
+        print("UserManager: Initializing")
     }
     
-    private func loadUserData() {
-        // Load isLoggedIn state
-        if let isLoggedIn = UserDefaults.standard.object(forKey: isLoggedInKey) as? Bool {
-            self.isLoggedIn = isLoggedIn
-        }
+    // Load user data from Firebase user
+    func loadUserFromFirebase(_ firebaseUser: FirebaseAuth.User) {
+        print("UserManager: Loading user data from Firebase user: \(firebaseUser.uid)")
         
-        // Load user data if available
-        if isLoggedIn, let userData = UserDefaults.standard.data(forKey: userDefaultsKey) {
-            let decoder = JSONDecoder()
-            do {
-                currentUser = try decoder.decode(User.self, from: userData)
-            } catch {
-                print("Error decoding user data: \(error.localizedDescription)")
-                // Reset state if there's an error
-                currentUser = nil
-                isLoggedIn = false
-                saveUserData()
+        // Check if we have this user in CoreData already
+        if let existingUser = fetchUser(byID: firebaseUser.uid) {
+            print("UserManager: Found existing user in CoreData")
+            DispatchQueue.main.async {
+                self.currentUser = existingUser
+                self.isLoggedIn = true
             }
+        } else {
+            print("UserManager: Creating new user model from Firebase user")
+            // Create a basic user profile with available data
+            let newUser = User(
+                id: firebaseUser.uid,
+                name: firebaseUser.displayName ?? "User",
+                email: firebaseUser.email ?? "",
+                dateOfBirth: Date(),
+                role: .artist
+            )
+            
+            // Save to CoreData and update state
+            saveUserToCoreData(newUser)
         }
     }
     
-    // Changed from private to public so AppState can call it
+    // Save user data to UserDefaults for backward compatibility
     func saveUserData() {
         // Save isLoggedIn state
         UserDefaults.standard.set(isLoggedIn, forKey: isLoggedInKey)
@@ -88,79 +100,199 @@ class UserManager: ObservableObject {
         }
     }
     
-    func signUp(name: String, email: String, password: String, dateOfBirth: Date, role: UserRole) {
-        // In a real app, this would make an API call to a backend
-        let newUser = User(
-            id: UUID().uuidString,
-            name: name,
-            email: email,
-            dateOfBirth: dateOfBirth,
-            role: role
-        )
+    // Helper method to save user to CoreData and update app state
+    private func saveUserToCoreData(_ user: User) {
+        print("UserManager: Saving user to CoreData: \(user.id)")
         
-        self.currentUser = newUser
-        self.isLoggedIn = true
+        // Update state immediately
+        DispatchQueue.main.async {
+            self.currentUser = user
+            self.isLoggedIn = true
+        }
+        
+        // Save to UserDefaults for backward compatibility
         saveUserData()
-    }
-    
-    func login(email: String, password: String) {
-        // For demo purposes only - this would validate with a backend in a real app
-        if email.contains("@") {
-            // Create the user model
-            let newUser = User(
-                id: UUID().uuidString,
-                name: "Demo User",
-                email: email,
-                dateOfBirth: Date(),
-                role: .artist
-            )
+        
+        // Save to CoreData
+        coreDataManager.performBackgroundTask { context in
+            let _ = user.toEntity(in: context)
             
-            // Save to CoreData
-            coreDataManager.performBackgroundTask { context in
-                let _ = newUser.toEntity(in: context)
-                
-                // Update published properties on main thread
-                DispatchQueue.main.async {
-                    self.currentUser = newUser
-                    self.isLoggedIn = true
-                    
-                    // For backward compatibility, still save to UserDefaults
-                    self.saveUserData()
+            // Ensure CoreData context is saved
+            if context.hasChanges {
+                do {
+                    try context.save()
+                    print("UserManager: CoreData context saved successfully")
+                } catch {
+                    print("UserManager: Error saving CoreData context: \(error)")
                 }
             }
         }
     }
     
+    func signUp(name: String, email: String, password: String, dateOfBirth: Date, role: UserRole) {
+        print("UserManager: Starting sign up process for \(email)")
+        self.authError = nil
+        
+        // Create the user in Firebase Authentication
+        Auth.auth().createUser(withEmail: email, password: password) { [weak self] authResult, error in
+            guard let self = self else { return }
+            
+            if let error = error {
+                print("UserManager: Error creating user: \(error.localizedDescription)")
+                DispatchQueue.main.async {
+                    self.authError = error.localizedDescription
+                }
+                return
+            }
+            
+            guard let authResult = authResult else {
+                print("UserManager: Authentication result is nil")
+                DispatchQueue.main.async {
+                    self.authError = "Authentication result is nil"
+                }
+                return
+            }
+            
+            print("UserManager: User created successfully in Firebase, uid: \(authResult.user.uid)")
+            
+            // Update the display name
+            let changeRequest = authResult.user.createProfileChangeRequest()
+            changeRequest.displayName = name
+            changeRequest.commitChanges { [weak self] error in
+                guard let self = self else { return }
+                
+                if let error = error {
+                    print("UserManager: Error updating display name: \(error.localizedDescription)")
+                } else {
+                    print("UserManager: Display name updated successfully")
+                }
+                
+                // Create a user model from Firebase user data
+                let newUser = User(
+                    id: authResult.user.uid,
+                    name: name,
+                    email: email,
+                    dateOfBirth: dateOfBirth,
+                    role: role
+                )
+                
+                // Save to CoreData
+                self.saveUserToCoreData(newUser)
+            }
+        }
+    }
+    
+    func login(email: String, password: String) {
+        print("UserManager: Starting login process for \(email)")
+        self.authError = nil
+        
+        Auth.auth().signIn(withEmail: email, password: password) { [weak self] authResult, error in
+            guard let self = self else { return }
+            
+            if let error = error {
+                print("UserManager: Error signing in: \(error.localizedDescription)")
+                DispatchQueue.main.async {
+                    self.authError = error.localizedDescription
+                }
+                return
+            }
+            
+            // Auth state listener in AppState will handle the rest
+            print("UserManager: Login successful")
+        }
+    }
+    
     func logout() {
-        self.currentUser = nil
-        self.isLoggedIn = false
-        saveUserData()
+        print("UserManager: Attempting to sign out")
+        do {
+            try Auth.auth().signOut()
+            print("UserManager: Successfully signed out")
+            
+            // Auth state listener in AppState will handle state updates
+        } catch {
+            print("UserManager: Error signing out: \(error.localizedDescription)")
+        }
     }
     
     func updateUserProfile(name: String, email: String, dateOfBirth: Date, role: UserRole) -> Bool {
-        guard var user = currentUser else { return false }
+        guard var user = currentUser, let firebaseUser = Auth.auth().currentUser else { return false }
         
+        // Update profile in Firebase Auth
+        let changeRequest = firebaseUser.createProfileChangeRequest()
+        changeRequest.displayName = name
+        
+        var success = true
+        
+        changeRequest.commitChanges { error in
+            if let error = error {
+                print("Error updating display name: \(error.localizedDescription)")
+                success = false
+            }
+        }
+        
+        // Update email if changed
+        if email != user.email {
+            firebaseUser.updateEmail(to: email) { error in
+                if let error = error {
+                    print("Error updating email: \(error.localizedDescription)")
+                    success = false
+                }
+            }
+        }
+        
+        // Update local user model
         user.name = name
         user.email = email
         user.dateOfBirth = dateOfBirth
         user.role = role
         
         self.currentUser = user
+        
+        // Save to CoreData
+        coreDataManager.performBackgroundTask { context in
+            let _ = user.toEntity(in: context)
+        }
+        
         saveUserData()
-        return true
+        return success
     }
     
     func updatePassword(currentPassword: String, newPassword: String) -> Bool {
-        // In a real app, this would validate the current password and update it securely
-        // For demo purposes, we'll just return success
-        // This is where you would integrate with a proper auth system
-        return true
+        guard let firebaseUser = Auth.auth().currentUser, let email = firebaseUser.email else { 
+            return false 
+        }
+        
+        // Re-authenticate user before password change
+        let credential = EmailAuthProvider.credential(withEmail: email, password: currentPassword)
+        
+        var success = true
+        
+        firebaseUser.reauthenticate(with: credential) { [weak self] _, error in
+            if let error = error {
+                print("Error re-authenticating: \(error.localizedDescription)")
+                success = false
+                return
+            }
+            
+            // Change password
+            firebaseUser.updatePassword(to: newPassword) { error in
+                if let error = error {
+                    print("Error updating password: \(error.localizedDescription)")
+                    success = false
+                }
+            }
+        }
+        
+        return success
     }
     
     // Debug function to reset all user data
     func resetUserData() {
         UserDefaults.standard.removeObject(forKey: userDefaultsKey)
         UserDefaults.standard.removeObject(forKey: isLoggedInKey)
+        if Auth.auth().currentUser != nil {
+            try? Auth.auth().signOut()
+        }
         self.currentUser = nil
         self.isLoggedIn = false
     }

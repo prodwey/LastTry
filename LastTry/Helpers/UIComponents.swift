@@ -144,6 +144,8 @@ struct AppTextField: View {
     @Binding var text: String
     var isSecure: Bool = false
     
+    @State private var isPasswordVisible: Bool = false
+    
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             Text(title)
@@ -152,14 +154,33 @@ struct AppTextField: View {
                 .foregroundColor(.appTextSecondary)
             
             if isSecure {
-                SecureField(placeholder, text: $text)
-                    .padding()
-                    .background(Color.appSurfaceBackground)
-                    .cornerRadius(8)
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 8)
-                            .stroke(Color.appDivider, lineWidth: 1)
-                    )
+                HStack {
+                    if isPasswordVisible {
+                        TextField(placeholder, text: $text)
+                            .autocorrectionDisabled(true)
+                            .textContentType(.oneTimeCode) // Prevents password autofill
+                            .foregroundColor(.appTextPrimary)
+                    } else {
+                        SecureField(placeholder, text: $text)
+                            .textContentType(.oneTimeCode) // Prevents password autofill
+                            .foregroundColor(.appTextPrimary)
+                    }
+                    
+                    // Toggle password visibility button
+                    Button(action: {
+                        isPasswordVisible.toggle()
+                    }) {
+                        Image(systemName: isPasswordVisible ? "eye.slash.fill" : "eye.fill")
+                            .foregroundColor(.appTextSecondary)
+                    }
+                }
+                .padding()
+                .background(Color.appSurfaceBackground)
+                .cornerRadius(8)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 8)
+                        .stroke(Color.appDivider, lineWidth: 1)
+                )
             } else {
                 TextField(placeholder, text: $text)
                     .padding()
