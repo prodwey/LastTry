@@ -3,6 +3,7 @@ import SwiftUI
 import CoreData
 import Firebase
 import FirebaseAuth
+import Combine
 
 enum AppLanguage: String, CaseIterable, Identifiable {
     case portugueseBR = "Brazilian Portuguese"
@@ -25,7 +26,10 @@ class AppState: ObservableObject {
     @Published var taskManager = TaskManager()
     @Published var newsManager = NewsManager()
     
-    // Simple authentication state tracking
+    // Authentication service - new centralized auth management
+    @Published var authService = AuthenticationService()
+    
+    // Simple authentication state tracking - now derived from authService
     @Published var isAuthenticated: Bool = false
     
     @Published var selectedLanguage: AppLanguage = .portugueseBR
@@ -35,7 +39,7 @@ class AppState: ObservableObject {
     @Published var currentPlaybackPosition: TimeInterval = 0
     
     private let coreDataManager = CoreDataManager.shared
-    private var authStateListener: AuthStateDidChangeListenerHandle?
+    private var cancellables = Set<AnyCancellable>()
     
     init() {
         print("AppState: Initializing")
@@ -46,8 +50,8 @@ class AppState: ObservableObject {
         // Check for CoreData migration need on first launch
         checkAndPerformMigration()
         
-        // Set up Firebase Auth state listener
-        setupAuthStateListener()
+        // Subscribe to auth state changes from AuthenticationService
+        setupAuthStateSubscription()
         
         // Fetch news data
         newsManager.fetchNews()
@@ -60,35 +64,36 @@ class AppState: ObservableObject {
         }
     }
     
-    // Setup Firebase Auth state listener
-    private func setupAuthStateListener() {
-        print("AppState: Setting up auth state listener")
+    // MARK: - Auth State Management
+    
+    // Setup subscription to the AuthenticationService
+    private func setupAuthStateSubscription() {
+        print("AppState: Setting up auth state subscription")
         
-        authStateListener = Auth.auth().addStateDidChangeListener { [weak self] (_, user) in
-            guard let self = self else { return }
-            
-            DispatchQueue.main.async {
-                let isAuthenticated = user != nil
-                print("AppState: Auth state changed, user is \(isAuthenticated ? "authenticated" : "not authenticated")")
+        authService.authStatePublisher
+            .receive(on: RunLoop.main)
+            .sink { [weak self] isAuthenticated in
+                guard let self = self else { return }
                 
                 // Update our authentication state
                 self.isAuthenticated = isAuthenticated
+                print("AppState: Auth state changed, user is \(isAuthenticated ? "authenticated" : "not authenticated")")
                 
                 // Sync with UserManager
                 self.userManager.isLoggedIn = isAuthenticated
                 
                 // Load user data or demo data based on authentication state
                 if isAuthenticated {
-                    if user?.uid != nil && self.userManager.currentUser == nil {
+                    if let firebaseUser = self.authService.currentUser, self.userManager.currentUser == nil {
                         // We're authenticated but don't have user data loaded
-                        self.userManager.loadUserFromFirebase(user!)
+                        self.userManager.loadUserFromFirebase(firebaseUser)
                     }
                 } else if self.userManager.currentUser == nil {
                     // We're not authenticated and don't have demo data
                     self.loadDemoData()
                 }
             }
-        }
+            .store(in: &cancellables)
     }
     
     // Check if we need to migrate data from UserDefaults to CoreData

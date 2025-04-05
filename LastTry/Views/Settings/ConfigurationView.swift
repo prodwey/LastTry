@@ -481,16 +481,37 @@ struct PasswordChangeView: View {
             return
         }
         
-        let success = appState.userManager.updatePassword(
-            currentPassword: currentPassword,
-            newPassword: newPassword
-        )
+        // Clear any previous errors in the authentication service
+        appState.authService.clearError()
         
-        if success {
-            showingSuccessAlert = true
-        } else {
-            errorMessage = "Failed to update password. Please check your current password and try again."
-            showingErrorAlert = true
+        Task {
+            // Use the AuthenticationService through UserManager for password updates
+            let success = await withCheckedContinuation { continuation in
+                Task {
+                    let result = await appState.authService.updatePassword(
+                        currentPassword: currentPassword,
+                        newPassword: newPassword
+                    )
+                    
+                    switch result {
+                    case .success:
+                        continuation.resume(returning: true)
+                    case .failure(let error):
+                        DispatchQueue.main.async {
+                            self.errorMessage = error.localizedDescription
+                        }
+                        continuation.resume(returning: false)
+                    }
+                }
+            }
+            
+            DispatchQueue.main.async {
+                if success {
+                    self.showingSuccessAlert = true
+                } else {
+                    self.showingErrorAlert = true
+                }
+            }
         }
     }
 }

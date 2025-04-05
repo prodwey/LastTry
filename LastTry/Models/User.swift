@@ -2,6 +2,7 @@ import Foundation
 import CoreData
 import Firebase
 import FirebaseAuth
+import Combine
 
 enum UserRole: String, CaseIterable, Identifiable, Codable {
     case producer = "Producer"
@@ -48,6 +49,8 @@ class UserManager: ObservableObject {
     
     // Reference to CoreData manager
     private let coreDataManager = CoreDataManager.shared
+    // Set of cancellables for Combine subscriptions
+    private var cancellables = Set<AnyCancellable>()
     
     init() {
         print("UserManager: Initializing")
@@ -129,39 +132,31 @@ class UserManager: ObservableObject {
         }
     }
     
+    // MARK: - Authentication Methods (now using AuthenticationService)
+    
+    // Sign up user using the authentication service
     func signUp(name: String, email: String, password: String, dateOfBirth: Date, role: UserRole) {
         print("UserManager: Starting sign up process for \(email)")
         self.authError = nil
         
-        // Create the user in Firebase Authentication
-        Auth.auth().createUser(withEmail: email, password: password) { [weak self] authResult, error in
-            guard let self = self else { return }
+        guard let appState = appState else {
+            print("UserManager: No app state reference")
+            self.authError = "Internal error"
+            return
+        }
+        
+        // Create the user in Firebase Authentication using our service
+        Task {
+            let result = await appState.authService.signUp(email: email, password: password)
             
-            if let error = error {
-                print("UserManager: Error creating user: \(error.localizedDescription)")
-                DispatchQueue.main.async {
-                    self.authError = error.localizedDescription
-                }
-                return
-            }
-            
-            guard let authResult = authResult else {
-                print("UserManager: Authentication result is nil")
-                DispatchQueue.main.async {
-                    self.authError = "Authentication result is nil"
-                }
-                return
-            }
-            
-            print("UserManager: User created successfully in Firebase, uid: \(authResult.user.uid)")
-            
-            // Update the display name
-            let changeRequest = authResult.user.createProfileChangeRequest()
-            changeRequest.displayName = name
-            changeRequest.commitChanges { [weak self] error in
-                guard let self = self else { return }
+            switch result {
+            case .success(let firebaseUser):
+                print("UserManager: User created successfully in Firebase, uid: \(firebaseUser.uid)")
                 
-                if let error = error {
+                // Update the display name using our service
+                let profileResult = await appState.authService.updateUserProfile(displayName: name)
+                
+                if case .failure(let error) = profileResult {
                     print("UserManager: Error updating display name: \(error.localizedDescription)")
                 } else {
                     print("UserManager: Display name updated successfully")
@@ -169,7 +164,7 @@ class UserManager: ObservableObject {
                 
                 // Create a user model from Firebase user data
                 let newUser = User(
-                    id: authResult.user.uid,
+                    id: firebaseUser.uid,
                     name: name,
                     email: email,
                     dateOfBirth: dateOfBirth,
@@ -177,63 +172,84 @@ class UserManager: ObservableObject {
                 )
                 
                 // Save to CoreData
-                self.saveUserToCoreData(newUser)
+                DispatchQueue.main.async {
+                    self.saveUserToCoreData(newUser)
+                }
+                
+            case .failure(let error):
+                print("UserManager: Error creating user: \(error.localizedDescription)")
+                DispatchQueue.main.async {
+                    self.authError = error.localizedDescription
+                }
             }
         }
     }
     
+    // Login using the authentication service
     func login(email: String, password: String) {
         print("UserManager: Starting login process for \(email)")
         self.authError = nil
         
-        Auth.auth().signIn(withEmail: email, password: password) { [weak self] authResult, error in
-            guard let self = self else { return }
+        guard let appState = appState else {
+            print("UserManager: No app state reference")
+            self.authError = "Internal error"
+            return
+        }
+        
+        Task {
+            let result = await appState.authService.signIn(email: email, password: password)
             
-            if let error = error {
-                print("UserManager: Error signing in: \(error.localizedDescription)")
+            if case .failure(let error) = result {
                 DispatchQueue.main.async {
                     self.authError = error.localizedDescription
                 }
-                return
+            } else {
+                print("UserManager: Login successful")
+                // Auth state listener in AppState will handle the rest
             }
-            
-            // Auth state listener in AppState will handle the rest
-            print("UserManager: Login successful")
         }
     }
     
+    // Logout using the authentication service
     func logout() {
         print("UserManager: Attempting to sign out")
-        do {
-            try Auth.auth().signOut()
-            print("UserManager: Successfully signed out")
-            
-            // Auth state listener in AppState will handle state updates
-        } catch {
+        
+        guard let appState = appState else {
+            print("UserManager: No app state reference")
+            return
+        }
+        
+        let result = appState.authService.signOut()
+        
+        if case .failure(let error) = result {
             print("UserManager: Error signing out: \(error.localizedDescription)")
+        } else {
+            print("UserManager: Successfully signed out")
+            // Auth state listener in AppState will handle state updates
         }
     }
     
+    // MARK: - User Profile Management
+    
     func updateUserProfile(name: String, email: String, dateOfBirth: Date, role: UserRole) -> Bool {
-        guard var user = currentUser, let firebaseUser = Auth.auth().currentUser else { return false }
-        
-        // Update profile in Firebase Auth
-        let changeRequest = firebaseUser.createProfileChangeRequest()
-        changeRequest.displayName = name
+        guard var user = currentUser, let appState = appState,
+              let firebaseUser = appState.authService.currentUser else { return false }
         
         var success = true
         
-        changeRequest.commitChanges { error in
-            if let error = error {
+        // Update profile in Firebase Auth
+        Task {
+            // Update display name
+            let nameResult = await appState.authService.updateUserProfile(displayName: name)
+            if case .failure(let error) = nameResult {
                 print("Error updating display name: \(error.localizedDescription)")
                 success = false
             }
-        }
-        
-        // Update email if changed
-        if email != user.email {
-            firebaseUser.updateEmail(to: email) { error in
-                if let error = error {
+            
+            // Update email if changed
+            if email != user.email {
+                let emailResult = await appState.authService.updateEmail(to: email)
+                if case .failure(let error) = emailResult {
                     print("Error updating email: \(error.localizedDescription)")
                     success = false
                 }
@@ -258,28 +274,14 @@ class UserManager: ObservableObject {
     }
     
     func updatePassword(currentPassword: String, newPassword: String) -> Bool {
-        guard let firebaseUser = Auth.auth().currentUser, let email = firebaseUser.email else { 
-            return false 
-        }
-        
-        // Re-authenticate user before password change
-        let credential = EmailAuthProvider.credential(withEmail: email, password: currentPassword)
+        guard let appState = appState else { return false }
         
         var success = true
         
-        firebaseUser.reauthenticate(with: credential) { [weak self] _, error in
-            if let error = error {
-                print("Error re-authenticating: \(error.localizedDescription)")
+        Task {
+            let result = await appState.authService.updatePassword(currentPassword: currentPassword, newPassword: newPassword)
+            if case .failure = result {
                 success = false
-                return
-            }
-            
-            // Change password
-            firebaseUser.updatePassword(to: newPassword) { error in
-                if let error = error {
-                    print("Error updating password: \(error.localizedDescription)")
-                    success = false
-                }
             }
         }
         
@@ -290,8 +292,8 @@ class UserManager: ObservableObject {
     func resetUserData() {
         UserDefaults.standard.removeObject(forKey: userDefaultsKey)
         UserDefaults.standard.removeObject(forKey: isLoggedInKey)
-        if Auth.auth().currentUser != nil {
-            try? Auth.auth().signOut()
+        if let appState = appState {
+            let _ = appState.authService.signOut()
         }
         self.currentUser = nil
         self.isLoggedIn = false

@@ -14,7 +14,7 @@ struct LastTryApp: App {
     @StateObject private var appState = AppState()
     
     init() {
-        // Initialize Firebase
+        // Initialize Firebase first, so AuthenticationService can use it
         FirebaseApp.configure()
         
         // Force light mode for the entire app by setting the UIKit appearance

@@ -99,6 +99,13 @@ struct LoginView: View {
                 isLoggingIn = false
             }
         }
+        .onChange(of: appState.authService.authError) { newError in
+            if let error = newError {
+                errorMessage = error.localizedDescription
+                showErrorAlert = true
+                isLoggingIn = false
+            }
+        }
     }
     
     private func login() {
@@ -110,7 +117,10 @@ struct LoginView: View {
         
         isLoggingIn = true
         
-        // Attempt login
+        // Clear any previous errors
+        appState.authService.clearError()
+        
+        // Attempt login using the UserManager (which now uses AuthenticationService)
         print("LoginView: Attempting to log in with email: \(email)")
         appState.userManager.login(email: email, password: password)
         
@@ -118,13 +128,23 @@ struct LoginView: View {
     }
     
     private func sendPasswordReset() {
-        Auth.auth().sendPasswordReset(withEmail: email) { error in
-            if let error = error {
-                errorMessage = "Could not send password reset: \(error.localizedDescription)"
-            } else {
-                errorMessage = "Password reset email sent. Please check your inbox."
+        // Use our AuthenticationService instead of Firebase Auth directly
+        Task {
+            // Clear any previous errors
+            appState.authService.clearError()
+            
+            let result = await appState.authService.sendPasswordReset(to: email)
+            
+            DispatchQueue.main.async {
+                switch result {
+                case .success:
+                    errorMessage = "Password reset email sent. Please check your inbox."
+                    showErrorAlert = true
+                case .failure(let error):
+                    errorMessage = "Could not send password reset: \(error.localizedDescription)"
+                    showErrorAlert = true
+                }
             }
-            showErrorAlert = true
         }
     }
 }

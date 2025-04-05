@@ -173,6 +173,13 @@ struct SignUpView: View {
                 isSigningUp = false
             }
         }
+        .onChange(of: appState.authService.authError) { newError in
+            if let error = newError {
+                errorMessage = error.localizedDescription
+                showError = true
+                isSigningUp = false
+            }
+        }
     }
     
     private func signUp() {
@@ -212,7 +219,10 @@ struct SignUpView: View {
         
         isSigningUp = true
         
-        // Create account
+        // Clear any previous errors
+        appState.authService.clearError()
+        
+        // Create account using the UserManager (which now uses AuthenticationService)
         appState.userManager.signUp(
             name: name,
             email: email,
