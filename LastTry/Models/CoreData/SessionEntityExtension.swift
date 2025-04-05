@@ -38,8 +38,11 @@ extension SessionEntity {
             entity.id = model.id
             entity.studio = model.studio.rawValue
             entity.mainProducer = model.mainProducer
-            entity.additionalProducers = NSArray(array: model.additionalProducers)
-            entity.singers = NSArray(array: model.singers)
+            
+            // Using direct array assignment - CoreData will handle the transformation
+            entity.additionalProducers = model.additionalProducers
+            entity.singers = model.singers
+            
             entity.date = model.date
             entity.duration = model.duration
             
@@ -65,8 +68,11 @@ extension SessionEntity {
             entity.id = model.id
             entity.studio = model.studio.rawValue
             entity.mainProducer = model.mainProducer
-            entity.additionalProducers = NSArray(array: model.additionalProducers)
-            entity.singers = NSArray(array: model.singers)
+            
+            // Using direct array assignment - CoreData will handle the transformation
+            entity.additionalProducers = model.additionalProducers
+            entity.singers = model.singers
+            
             entity.date = model.date
             entity.duration = model.duration
             
