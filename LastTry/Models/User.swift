@@ -286,7 +286,7 @@ class UserManager: ObservableObject {
         return success
     }
     
-    // Debug function to reset all user data
+    // Reset user data - keep for debugging
     func resetUserData() {
         UserDefaults.standard.removeObject(forKey: userDefaultsKey)
         UserDefaults.standard.removeObject(forKey: isLoggedInKey)
