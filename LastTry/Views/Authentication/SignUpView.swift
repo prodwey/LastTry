@@ -15,8 +15,7 @@ struct SignUpView: View {
     @State private var showDatePicker = false
     @State private var showEmptyFieldsAlert = false
     @State private var showInvalidEmailAlert = false
-    @State private var isCreatingAccount = false
-    @State private var errorMessage = ""
+    @State private var showAuthErrorAlert = false
     
     var body: some View {
         ZStack {
@@ -103,50 +102,15 @@ struct SignUpView: View {
                     
                     // Sign up button
                     Button("Create Account") {
-                        // Validate input fields
-                        if name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
-                           email.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
-                           password.isEmpty {
-                            showEmptyFieldsAlert = true
-                            return
-                        }
-                        
-                        // Validate email format
-                        if !isValidEmail(email) {
-                            showInvalidEmailAlert = true
-                            return
-                        }
-                        
-                        // Check passwords match
-                        if password != confirmPassword {
-                            showPasswordMismatchAlert = true
-                            return
-                        }
-                        
-                        // Proceed with sign up
-                        isCreatingAccount = true
-                        
-                        // Add slight delay to show loading state and simulate network request
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-                            appState.userManager.signUp(
-                                name: name,
-                                email: email,
-                                password: password,
-                                dateOfBirth: dateOfBirth,
-                                role: selectedRole
-                            )
-                            isCreatingAccount = false
-                            
-                            // The app state's isLoggedIn should now be true, causing ContentView to show MainTabView
-                        }
+                        signUp()
                     }
                     .buttonStyle(PrimaryButtonStyle())
                     .frame(maxWidth: 280)
                     .padding(.top, 20)
-                    .disabled(isCreatingAccount)
+                    .disabled(appState.authService.isLoading)
                     .overlay(
                         Group {
-                            if isCreatingAccount {
+                            if appState.authService.isLoading {
                                 ProgressView()
                                     .progressViewStyle(CircularProgressViewStyle(tint: .white))
                             }
@@ -181,6 +145,48 @@ struct SignUpView: View {
             Button("OK", role: .cancel) { }
         } message: {
             Text("Please enter a valid email address.")
+        }
+        .alert("Authentication Error", isPresented: $showAuthErrorAlert) {
+            Button("OK", role: .cancel) { }
+        } message: {
+            Text(appState.authService.authError?.localizedDescription ?? "An unknown error occurred")
+        }
+        .onChange(of: appState.authService.authError) { error in
+            showAuthErrorAlert = (error != nil)
+        }
+    }
+    
+    private func signUp() {
+        // Validate input fields
+        if name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
+           email.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
+           password.isEmpty {
+            showEmptyFieldsAlert = true
+            return
+        }
+        
+        // Validate email format
+        if !isValidEmail(email) {
+            showInvalidEmailAlert = true
+            return
+        }
+        
+        // Check passwords match
+        if password != confirmPassword {
+            showPasswordMismatchAlert = true
+            return
+        }
+        
+        // Proceed with Firebase sign up
+        Task {
+            await appState.authService.signUp(
+                name: name,
+                email: email,
+                password: password,
+                dateOfBirth: dateOfBirth,
+                role: selectedRole
+            )
+            // The auth state listener will handle updating UI if successful
         }
     }
     

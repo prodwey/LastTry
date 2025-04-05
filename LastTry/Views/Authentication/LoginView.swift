@@ -6,7 +6,9 @@ struct LoginView: View {
     
     @State private var email = ""
     @State private var password = ""
-    @State private var showInvalidCredentialsAlert = false
+    @State private var showAuthErrorAlert = false
+    @State private var showResetPasswordAlert = false
+    @State private var resetEmailSent = false
     
     var body: some View {
         ZStack {
@@ -34,7 +36,12 @@ struct LoginView: View {
                     HStack {
                         Spacer()
                         Button("Forgot Password?") {
-                            // Would normally navigate to password reset
+                            if email.isEmpty {
+                                // Show alert to enter email first
+                                showResetPasswordAlert = true
+                            } else {
+                                sendPasswordReset()
+                            }
                         }
                         .foregroundColor(.appPrimary)
                         .font(.caption)
@@ -44,15 +51,20 @@ struct LoginView: View {
                 
                 // Login button
                 Button("Log In") {
-                    appState.userManager.login(email: email, password: password)
-                    
-                    if !appState.userManager.isLoggedIn {
-                        showInvalidCredentialsAlert = true
-                    }
+                    login()
                 }
                 .buttonStyle(PrimaryButtonStyle())
                 .frame(maxWidth: 280)
                 .padding(.top, 40)
+                .disabled(appState.authService.isLoading)
+                .overlay(
+                    Group {
+                        if appState.authService.isLoading {
+                            ProgressView()
+                                .progressViewStyle(CircularProgressViewStyle(tint: .white))
+                        }
+                    }
+                )
                 
                 // Sign up option
                 Button("Don't have an account? Sign Up") {
@@ -67,10 +79,41 @@ struct LoginView: View {
         }
         .navigationBarTitle("Log In", displayMode: .inline)
         .navigationBarBackButtonHidden(false)
-        .alert("Invalid Credentials", isPresented: $showInvalidCredentialsAlert) {
+        .alert("Authentication Error", isPresented: $showAuthErrorAlert) {
             Button("OK", role: .cancel) { }
         } message: {
-            Text("Please check your email and password and try again.")
+            Text(appState.authService.authError?.localizedDescription ?? "Invalid credentials. Please try again.")
+        }
+        .alert("Password Reset", isPresented: $showResetPasswordAlert) {
+            Button("Cancel", role: .cancel) { }
+            Button("Send") {
+                sendPasswordReset()
+            }
+        } message: {
+            if resetEmailSent {
+                Text("Password reset email has been sent.")
+            } else {
+                Text("Please enter your email address to receive a password reset link.")
+            }
+        }
+        .onChange(of: appState.authService.authError) { error in
+            showAuthErrorAlert = (error != nil)
+        }
+    }
+    
+    private func login() {
+        Task {
+            await appState.authService.signIn(email: email, password: password)
+            // The auth state listener will handle updating UI if successful
+        }
+    }
+    
+    private func sendPasswordReset() {
+        Task {
+            resetEmailSent = await appState.authService.sendPasswordReset(to: email)
+            if resetEmailSent {
+                showResetPasswordAlert = true
+            }
         }
     }
 }

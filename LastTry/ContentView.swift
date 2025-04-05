@@ -12,7 +12,7 @@ struct ContentView: View {
     
     var body: some View {
         Group {
-            if appState.userManager.isLoggedIn {
+            if appState.authService.isLoggedIn {
                 MainTabView()
                     .preferredColorScheme(.light)
             } else {

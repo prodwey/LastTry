@@ -1,6 +1,7 @@
 import Foundation
 import SwiftUI
 import CoreData
+import Combine
 
 enum AppLanguage: String, CaseIterable, Identifiable {
     case portugueseBR = "Brazilian Portuguese"
@@ -17,7 +18,12 @@ enum AppLanguage: String, CaseIterable, Identifiable {
 }
 
 class AppState: ObservableObject {
+    // Authentication service for Firebase Auth
+    @Published var authService = AuthenticationService.shared
+    
+    // Legacy user manager - will be fully replaced by authService in the future
     @Published var userManager = UserManager()
+    
     @Published var sessionManager = SessionManager()
     @Published var songManager = SongManager()
     @Published var taskManager = TaskManager()
@@ -30,18 +36,40 @@ class AppState: ObservableObject {
     @Published var currentPlaybackPosition: TimeInterval = 0
     
     private let coreDataManager = CoreDataManager.shared
+    private var isFirstLaunch = true
     
     init() {
         // Check for CoreData migration need on first launch
         checkAndPerformMigration()
         
-        // Check if user is logged in, otherwise load demo data
-        if !userManager.isLoggedIn {
+        // Set up observers for auth state changes
+        setupAuthObservers()
+        
+        // Check if user is logged in with Firebase, otherwise load demo data
+        if !authService.isLoggedIn {
             loadDemoData()
         }
         
         newsManager.fetchNews()
     }
+    
+    private func setupAuthObservers() {
+        // Sync legacy UserManager with new AuthService during transition
+        authService.$isLoggedIn
+            .sink { [weak self] isLoggedIn in
+                self?.userManager.isLoggedIn = isLoggedIn
+            }
+            .store(in: &cancellables)
+        
+        authService.$currentUser
+            .sink { [weak self] user in
+                self?.userManager.currentUser = user
+            }
+            .store(in: &cancellables)
+    }
+    
+    // Storage for cancellables
+    private var cancellables = Set<AnyCancellable>()
     
     // Check if we need to migrate data from UserDefaults to CoreData
     private func checkAndPerformMigration() {
