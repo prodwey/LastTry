@@ -38,8 +38,8 @@ extension SessionEntity {
             entity.id = model.id
             entity.studio = model.studio.rawValue
             entity.mainProducer = model.mainProducer
-            entity.additionalProducers = model.additionalProducers as NSArray
-            entity.singers = model.singers as NSArray
+            entity.additionalProducers = NSArray(array: model.additionalProducers)
+            entity.singers = NSArray(array: model.singers)
             entity.date = model.date
             entity.duration = model.duration
             
@@ -65,8 +65,8 @@ extension SessionEntity {
             entity.id = model.id
             entity.studio = model.studio.rawValue
             entity.mainProducer = model.mainProducer
-            entity.additionalProducers = model.additionalProducers as NSArray
-            entity.singers = model.singers as NSArray
+            entity.additionalProducers = NSArray(array: model.additionalProducers)
+            entity.singers = NSArray(array: model.singers)
             entity.date = model.date
             entity.duration = model.duration
             
