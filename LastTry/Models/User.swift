@@ -1,4 +1,5 @@
 import Foundation
+import CoreData
 
 enum UserRole: String, CaseIterable, Identifiable, Codable {
     case producer = "Producer"
@@ -19,12 +20,28 @@ struct User: Identifiable, Codable {
     // and not stored in plain text in a real app
 }
 
+// MARK: - CoreDataConvertible
+extension User: CoreDataConvertible {
+    typealias Entity = UserEntity
+    
+    func toEntity(in context: NSManagedObjectContext) -> UserEntity {
+        UserEntity.createOrUpdate(from: self, in: context)
+    }
+    
+    static func fromEntity(_ entity: UserEntity) -> User {
+        entity.toModel()
+    }
+}
+
 class UserManager: ObservableObject {
     @Published var currentUser: User?
     @Published var isLoggedIn: Bool = false
     
     private let userDefaultsKey = "currentUser"
     private let isLoggedInKey = "isLoggedIn"
+    
+    // Reference to CoreData manager
+    private let coreDataManager = CoreDataManager.shared
     
     init() {
         loadUserData()
@@ -88,15 +105,28 @@ class UserManager: ObservableObject {
     func login(email: String, password: String) {
         // For demo purposes only - this would validate with a backend in a real app
         if email.contains("@") {
-            self.currentUser = User(
+            // Create the user model
+            let newUser = User(
                 id: UUID().uuidString,
                 name: "Demo User",
                 email: email,
                 dateOfBirth: Date(),
                 role: .artist
             )
-            self.isLoggedIn = true
-            saveUserData()
+            
+            // Save to CoreData
+            coreDataManager.performBackgroundTask { context in
+                let _ = newUser.toEntity(in: context)
+                
+                // Update published properties on main thread
+                DispatchQueue.main.async {
+                    self.currentUser = newUser
+                    self.isLoggedIn = true
+                    
+                    // For backward compatibility, still save to UserDefaults
+                    self.saveUserData()
+                }
+            }
         }
     }
     
