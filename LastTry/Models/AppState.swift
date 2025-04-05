@@ -1,5 +1,6 @@
 import Foundation
 import SwiftUI
+import CoreData
 
 enum AppLanguage: String, CaseIterable, Identifiable {
     case portugueseBR = "Brazilian Portuguese"
@@ -28,13 +29,28 @@ class AppState: ObservableObject {
     @Published var isPlaying: Bool = false
     @Published var currentPlaybackPosition: TimeInterval = 0
     
+    private let coreDataManager = CoreDataManager.shared
+    
     init() {
+        // Check for CoreData migration need on first launch
+        checkAndPerformMigration()
+        
         // Check if user is logged in, otherwise load demo data
         if !userManager.isLoggedIn {
             loadDemoData()
         }
         
         newsManager.fetchNews()
+    }
+    
+    // Check if we need to migrate data from UserDefaults to CoreData
+    private func checkAndPerformMigration() {
+        if coreDataManager.isFirstLaunch {
+            // In a production app, this would perform a comprehensive migration
+            // For this demo, we simply mark migration as complete
+            print("Core Data is being used for the first time, marking migration as complete")
+            coreDataManager.markMigrationAsComplete()
+        }
     }
     
     // Load demo data for preview and testing purposes
@@ -47,8 +63,18 @@ class AppState: ObservableObject {
             dateOfBirth: Calendar.current.date(from: DateComponents(year: 1990, month: 5, day: 15)) ?? Date(),
             role: .producer
         )
+        
+        // Save demo user to CoreData
+        coreDataManager.performBackgroundTask { context in
+            let _ = demoUser.toEntity(in: context)
+        }
+        
+        // Set as current user
         userManager.currentUser = demoUser
         userManager.isLoggedIn = true
+        
+        // For backward compatibility
+        userManager.saveUserData()
         
         // Add demo sessions
         let pastDate1 = Calendar.current.date(byAdding: .day, value: -3, to: Date()) ?? Date()

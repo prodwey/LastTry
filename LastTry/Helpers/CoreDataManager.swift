@@ -9,16 +9,21 @@ class CoreDataManager {
     // MARK: - Core Data stack
     
     lazy var persistentContainer: NSPersistentContainer = {
+        // Note: Make sure the model name matches the actual .xcdatamodeld file name
         let container = NSPersistentContainer(name: "StudioManager")
         container.loadPersistentStores(completionHandler: { (storeDescription, error) in
             if let error = error as NSError? {
-                // Replace this implementation with code to handle the error appropriately.
-                // fatalError() causes the application to generate a crash log and terminate.
-                // You should not use this function in shipping application, handle the error appropriately.
-                print("Unresolved error \(error), \(error.userInfo)")
-                fatalError("Unresolved error \(error), \(error.userInfo)")
+                // Handle the error appropriately instead of using fatalError in a shipping app
+                print("CoreData error: \(error), \(error.userInfo)")
+                // During development, it can be useful to know when CoreData setup fails
+                #if DEBUG
+                fatalError("CoreData error: \(error), \(error.userInfo)")
+                #endif
             }
         })
+        // Better performance by merging changes automatically
+        container.viewContext.automaticallyMergesChangesFromParent = true
+        container.viewContext.mergePolicy = NSMergeByPropertyObjectTrumpMergePolicy
         return container
     }()
     
@@ -30,11 +35,15 @@ class CoreDataManager {
             do {
                 try context.save()
             } catch {
-                // Replace this implementation with code to handle the error appropriately.
-                // fatalError() causes the application to generate a crash log and terminate.
-                // You should not use this function in shipping application, handle the error appropriately.
                 let nserror = error as NSError
-                print("Unresolved error \(nserror), \(nserror.userInfo)")
+                print("CoreData save error: \(nserror), \(nserror.userInfo)")
+                #if DEBUG
+                // Only in debug mode, we want to be alerted of these issues
+                if ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] == nil {
+                    // Don't crash during unit testing
+                    print("Unresolved CoreData error: \(nserror), \(nserror.userInfo)")
+                }
+                #endif
             }
         }
     }
@@ -46,6 +55,54 @@ class CoreDataManager {
     }
     
     func createBackgroundContext() -> NSManagedObjectContext {
-        return persistentContainer.newBackgroundContext()
+        let context = persistentContainer.newBackgroundContext()
+        context.mergePolicy = NSMergeByPropertyObjectTrumpMergePolicy
+        return context
+    }
+    
+    // Perform a task in a background context and save
+    func performBackgroundTask(_ block: @escaping (NSManagedObjectContext) -> Void) {
+        let context = createBackgroundContext()
+        context.perform {
+            block(context)
+            
+            if context.hasChanges {
+                do {
+                    try context.save()
+                } catch {
+                    print("Error saving background context: \(error)")
+                }
+            }
+        }
+    }
+    
+    // MARK: - Migration support
+    
+    /// Checks if this is the first launch of the app with CoreData
+    var isFirstLaunch: Bool {
+        if UserDefaults.standard.bool(forKey: "coreDataMigrationPerformed") {
+            return false
+        } else {
+            return true
+        }
+    }
+    
+    /// Marks the migration as complete
+    func markMigrationAsComplete() {
+        UserDefaults.standard.set(true, forKey: "coreDataMigrationPerformed")
+    }
+    
+    /// Deletes all records of a given entity type
+    func deleteAllRecords(of entityName: String) {
+        let context = viewContext
+        let fetchRequest = NSFetchRequest<NSFetchRequestResult>(entityName: entityName)
+        let batchDeleteRequest = NSBatchDeleteRequest(fetchRequest: fetchRequest)
+        
+        do {
+            try context.execute(batchDeleteRequest)
+            try context.save()
+        } catch {
+            print("Error deleting all \(entityName): \(error)")
+        }
     }
 } 
