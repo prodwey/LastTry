@@ -1,4 +1,5 @@
 import Foundation
+import CoreData
 
 enum TaskPriority: Int, Codable, CaseIterable, Identifiable {
     case low = 0
@@ -45,8 +46,24 @@ struct Task: Identifiable, Codable {
     }
 }
 
+// MARK: - CoreDataConvertible
+extension Task: CoreDataConvertible {
+    typealias Entity = TaskEntity
+    
+    func toEntity(in context: NSManagedObjectContext) -> TaskEntity {
+        TaskEntity.createOrUpdate(from: self, in: context)
+    }
+    
+    static func fromEntity(_ entity: TaskEntity) -> Task {
+        entity.toModel()
+    }
+}
+
 class TaskManager: ObservableObject {
     @Published var tasks: [Task] = []
+    
+    // Reference to CoreData manager
+    private let coreDataManager = CoreDataManager.shared
     
     func addTask(title: String, description: String, priority: TaskPriority, 
                 dueDate: Date?, assignedTo: String?, createdBy: String) {

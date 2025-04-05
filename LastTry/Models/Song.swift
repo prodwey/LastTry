@@ -1,5 +1,6 @@
 import Foundation
 import AVFoundation
+import CoreData
 
 struct Artist: Identifiable, Codable {
     var id: String
@@ -11,6 +12,19 @@ struct Artist: Identifiable, Codable {
     var phone: String?
     var publisher: String?
     var recordingLabel: String?
+}
+
+// MARK: - CoreDataConvertible
+extension Artist: CoreDataConvertible {
+    typealias Entity = ArtistEntity
+    
+    func toEntity(in context: NSManagedObjectContext) -> ArtistEntity {
+        ArtistEntity.createOrUpdate(from: self, in: context)
+    }
+    
+    static func fromEntity(_ entity: ArtistEntity) -> Artist {
+        entity.toModel()
+    }
 }
 
 enum AudioFormat: String, Codable, CaseIterable {
@@ -52,8 +66,24 @@ struct Song: Identifiable, Codable {
     }
 }
 
+// MARK: - CoreDataConvertible
+extension Song: CoreDataConvertible {
+    typealias Entity = SongEntity
+    
+    func toEntity(in context: NSManagedObjectContext) -> SongEntity {
+        SongEntity.createOrUpdate(from: self, in: context)
+    }
+    
+    static func fromEntity(_ entity: SongEntity) -> Song {
+        entity.toModel()
+    }
+}
+
 class SongManager: ObservableObject {
     @Published var songs: [Song] = []
+    
+    // Reference to CoreData manager
+    private let coreDataManager = CoreDataManager.shared
     
     func addSong(name: String, fileURL: URL, artists: [Artist], lyrics: String?, sessionId: String) {
         guard let format = AudioFormat.fromFileExtension(fileURL.pathExtension) else { return }

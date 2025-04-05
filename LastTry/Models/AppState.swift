@@ -116,7 +116,17 @@ class AppState: ObservableObject {
             songs: nil
         )
         
-        sessionManager.sessions = [pastSession1, pastSession2, futureSession]
+        // Save sessions to CoreData
+        coreDataManager.performBackgroundTask { context in
+            let _ = pastSession1.toEntity(in: context)
+            let _ = pastSession2.toEntity(in: context)
+            let _ = futureSession.toEntity(in: context)
+            
+            // Update sessions array on main thread
+            DispatchQueue.main.async {
+                self.sessionManager.sessions = [pastSession1, pastSession2, futureSession]
+            }
+        }
         
         // Add demo tasks
         let task1 = Task(

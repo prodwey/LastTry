@@ -1,4 +1,5 @@
 import Foundation
+import CoreData
 
 enum NewsCategory: String, CaseIterable, Identifiable, Codable {
     case brazil = "Brazil"
@@ -57,8 +58,24 @@ struct NewsItem: Identifiable, Codable {
     }
 }
 
+// MARK: - CoreDataConvertible
+extension NewsItem: CoreDataConvertible {
+    typealias Entity = NewsItemEntity
+    
+    func toEntity(in context: NSManagedObjectContext) -> NewsItemEntity {
+        NewsItemEntity.createOrUpdate(from: self, in: context)
+    }
+    
+    static func fromEntity(_ entity: NewsItemEntity) -> NewsItem {
+        entity.toModel()
+    }
+}
+
 class NewsManager: ObservableObject {
     @Published var newsItems: [NewsItem] = []
+    
+    // Reference to CoreData manager
+    private let coreDataManager = CoreDataManager.shared
     
     func fetchNews() {
         // In a real app, this would make an API call to fetch news
