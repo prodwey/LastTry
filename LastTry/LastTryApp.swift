@@ -6,6 +6,7 @@
 //
 
 import SwiftUI
+import CoreData
 
 @main
 struct LastTryApp: App {
@@ -22,6 +23,11 @@ struct LastTryApp: App {
             ContentView()
                 .environmentObject(appState)
                 .preferredColorScheme(.light) // Force light mode in SwiftUI
+                .environment(\.managedObjectContext, CoreDataManager.shared.viewContext)
+                .onReceive(NotificationCenter.default.publisher(for: UIApplication.willResignActiveNotification)) { _ in
+                    // Save CoreData context when app moves to background
+                    CoreDataManager.shared.saveContext()
+                }
         }
     }
 }
