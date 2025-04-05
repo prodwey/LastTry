@@ -68,7 +68,8 @@ class UserManager: ObservableObject {
         }
     }
     
-    private func saveUserData() {
+    // Changed from private to public so AppState can call it
+    func saveUserData() {
         // Save isLoggedIn state
         UserDefaults.standard.set(isLoggedIn, forKey: isLoggedInKey)
         
@@ -162,5 +163,39 @@ class UserManager: ObservableObject {
         UserDefaults.standard.removeObject(forKey: isLoggedInKey)
         self.currentUser = nil
         self.isLoggedIn = false
+    }
+    
+    // MARK: - CoreData methods
+    
+    // Fetch a user by ID from CoreData
+    func fetchUser(byID id: String) -> User? {
+        let context = coreDataManager.viewContext
+        let fetchRequest: NSFetchRequest<UserEntity> = UserEntity.fetchRequest()
+        fetchRequest.predicate = NSPredicate(format: "id == %@", id)
+        
+        do {
+            let results = try context.fetch(fetchRequest)
+            if let entity = results.first {
+                return User.fromEntity(entity)
+            }
+        } catch {
+            print("Error fetching user from CoreData: \(error)")
+        }
+        
+        return nil
+    }
+    
+    // Fetch all users from CoreData
+    func fetchAllUsers() -> [User] {
+        let context = coreDataManager.viewContext
+        let fetchRequest: NSFetchRequest<UserEntity> = UserEntity.fetchRequest()
+        
+        do {
+            let results = try context.fetch(fetchRequest)
+            return results.map { User.fromEntity($0) }
+        } catch {
+            print("Error fetching users from CoreData: \(error)")
+            return []
+        }
     }
 } 
