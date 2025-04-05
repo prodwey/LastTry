@@ -1,0 +1,460 @@
+import SwiftUI
+import PhotosUI
+import AVFoundation
+
+struct SongUploadView: View {
+    @EnvironmentObject var appState: AppState
+    @Environment(\.dismiss) var dismiss
+    
+    var session: Session
+    
+    @State private var songName = ""
+    @State private var lyrics = ""
+    @State private var artists: [Artist] = []
+    @State private var selectedItem: PhotosPickerItem? = nil
+    @State private var selectedAudioURL: URL? = nil
+    @State private var audioFormat: AudioFormat? = nil
+    @State private var isUploadComplete = false
+    @State private var showingNoAudioAlert = false
+    
+    @State private var currentArtistName = ""
+    @State private var currentArtistCPF = ""
+    @State private var currentArtistEmail = ""
+    @State private var addingNewArtist = false
+    
+    var body: some View {
+        NavigationStack {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 20) {
+                    sessionHeaderSection
+                    audioPickerSection
+                    songNameSection
+                    artistsSection
+                    lyricsSection
+                    buttonsSection
+                }
+                .padding()
+            }
+            .background(Color.appBackground)
+            .navigationTitle("Upload Song")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") {
+                        dismiss()
+                    }
+                }
+            }
+            .onChange(of: selectedItem) { _, newItem in
+                loadTransferable(from: newItem)
+            }
+            .alert("Mark Session", isPresented: $showingNoAudioAlert) {
+                Button("Yes", role: .destructive) {
+                    markNoAudio()
+                }
+                Button("Cancel", role: .cancel) {}
+            } message: {
+                Text("Are you sure you want to mark this session as having no audio? This can't be undone.")
+            }
+            .alert("Upload Complete", isPresented: $isUploadComplete) {
+                Button("OK") {
+                    dismiss()
+                }
+            } message: {
+                Text("Your song has been uploaded successfully.")
+            }
+        }
+    }
+    
+    // MARK: - View Components
+    
+    private var sessionHeaderSection: some View {
+        SessionInfoHeader(session: session)
+            .padding(.bottom, 10)
+    }
+    
+    private var audioPickerSection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Upload Audio File")
+                .font(.headline)
+            
+            PhotosPicker(selection: $selectedItem, matching: .any(of: [.images, .videos])) {
+                HStack {
+                    Image(systemName: "music.note")
+                    Text(selectedAudioURL != nil ? "Change File" : "Select Audio File")
+                }
+                .frame(maxWidth: .infinity)
+                .padding()
+                .background(Color.appPrimary)
+                .foregroundColor(.white)
+                .cornerRadius(10)
+            }
+            
+            if let audioFormat = audioFormat {
+                HStack {
+                    Image(systemName: "checkmark.circle.fill")
+                        .foregroundColor(.green)
+                    
+                    Text("File selected: \(audioFormat.rawValue) format")
+                        .font(.caption)
+                }
+                .padding(.top, 4)
+            }
+            
+            Divider()
+                .padding(.vertical, 8)
+        }
+    }
+    
+    private var songNameSection: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text("Song Name")
+                .font(.headline)
+            
+            TextField("Enter song name", text: $songName)
+                .padding()
+                .background(Color.appBackground)
+                .cornerRadius(8)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 8)
+                        .stroke(Color.gray.opacity(0.3), lineWidth: 1)
+                )
+        }
+    }
+    
+    private var artistsSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Artists/Singers")
+                .font(.headline)
+            
+            // List existing artists
+            ForEach(artists.indices, id: \.self) { index in
+                ArtistListItem(artist: artists[index], onDelete: {
+                    artists.remove(at: index)
+                })
+            }
+            
+            // Add new artist button
+            if !addingNewArtist {
+                addArtistButton
+            } else {
+                newArtistForm
+            }
+        }
+    }
+    
+    private var addArtistButton: some View {
+        Button(action: {
+            addingNewArtist = true
+        }) {
+            HStack {
+                Image(systemName: "plus.circle.fill")
+                Text("Add Artist")
+            }
+        }
+        .padding(.vertical, 8)
+        .foregroundColor(.appPrimary)
+    }
+    
+    private var lyricsSection: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text("Lyrics (Optional)")
+                .font(.headline)
+            
+            TextEditor(text: $lyrics)
+                .frame(minHeight: 120)
+                .padding(4)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 8)
+                        .stroke(Color.gray.opacity(0.3), lineWidth: 1)
+                )
+        }
+    }
+    
+    private var buttonsSection: some View {
+        HStack {
+            Button("Upload Song") {
+                uploadSong()
+            }
+            .buttonStyle(PrimaryButtonStyle())
+            .disabled(!canUpload)
+            
+            Button("I Don't Have Audio") {
+                showingNoAudioAlert = true
+            }
+            .buttonStyle(OutlineButtonStyle())
+        }
+        .padding(.top, 20)
+    }
+    
+    private var newArtistForm: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("New Artist")
+                .font(.subheadline)
+                .fontWeight(.semibold)
+            
+            // Name field
+            artistNameField
+            
+            // Optional fields
+            HStack {
+                cpfField
+                emailField
+            }
+            
+            // Buttons
+            artistFormButtons
+        }
+        .padding()
+        .background(Color.white)
+        .cornerRadius(12)
+        .shadow(color: Color.black.opacity(0.1), radius: 3, x: 0, y: 1)
+    }
+    
+    private var artistNameField: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack {
+                Text("Name")
+                    .font(.caption)
+                
+                Text("*")
+                    .foregroundColor(.red)
+                    .font(.caption)
+            }
+            
+            TextField("Artist name", text: $currentArtistName)
+                .padding()
+                .background(Color.appBackground)
+                .cornerRadius(8)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 8)
+                        .stroke(Color.gray.opacity(0.3), lineWidth: 1)
+                )
+        }
+    }
+    
+    private var cpfField: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text("CPF")
+                .font(.caption)
+            
+            TextField("CPF number", text: $currentArtistCPF)
+                .padding()
+                .background(Color.appBackground)
+                .cornerRadius(8)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 8)
+                        .stroke(Color.gray.opacity(0.3), lineWidth: 1)
+                )
+        }
+    }
+    
+    private var emailField: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text("Email")
+                .font(.caption)
+            
+            TextField("Email address", text: $currentArtistEmail)
+                .padding()
+                .background(Color.appBackground)
+                .cornerRadius(8)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 8)
+                        .stroke(Color.gray.opacity(0.3), lineWidth: 1)
+                )
+        }
+    }
+    
+    private var artistFormButtons: some View {
+        HStack {
+            Button("Add") {
+                addArtist()
+            }
+            .buttonStyle(PrimaryButtonStyle())
+            .disabled(currentArtistName.isEmpty)
+            
+            Button("Cancel") {
+                resetArtistForm()
+            }
+            .buttonStyle(OutlineButtonStyle())
+        }
+    }
+    
+    // MARK: - Helper Methods
+    
+    private var canUpload: Bool {
+        !songName.isEmpty && !artists.isEmpty && selectedAudioURL != nil
+    }
+    
+    private func loadTransferable(from item: PhotosPickerItem?) {
+        guard let item = item else { return }
+        
+        item.loadTransferable(type: URL.self) { result in
+            DispatchQueue.main.async {
+                switch result {
+                case .success(let url):
+                    self.selectedAudioURL = url
+                    if let fileExtension = self.selectedAudioURL?.pathExtension {
+                        self.audioFormat = AudioFormat.fromFileExtension(fileExtension)
+                    }
+                case .failure(let error):
+                    print("Error loading file: \(error)")
+                }
+            }
+        }
+    }
+    
+    private func addArtist() {
+        guard !currentArtistName.isEmpty else { return }
+        
+        let newArtist = Artist(
+            id: UUID().uuidString,
+            name: currentArtistName,
+            cpf: currentArtistCPF.isEmpty ? nil : currentArtistCPF,
+            rg: nil,
+            dateOfBirth: nil,
+            email: currentArtistEmail.isEmpty ? nil : currentArtistEmail,
+            phone: nil,
+            publisher: nil,
+            recordingLabel: nil
+        )
+        
+        artists.append(newArtist)
+        resetArtistForm()
+    }
+    
+    private func resetArtistForm() {
+        currentArtistName = ""
+        currentArtistCPF = ""
+        currentArtistEmail = ""
+        addingNewArtist = false
+    }
+    
+    private func uploadSong() {
+        guard let audioURL = selectedAudioURL else { return }
+        
+        guard let _ = audioFormat else { return }
+        
+        guard !songName.isEmpty else { return }
+        
+        guard !artists.isEmpty else { return }
+        
+        appState.songManager.addSong(
+            name: songName,
+            fileURL: audioURL,
+            artists: artists,
+            lyrics: lyrics.isEmpty ? nil : lyrics,
+            sessionId: session.id
+        )
+        
+        if let song = appState.songManager.songs.last {
+            appState.sessionManager.addSongToSession(sessionId: session.id, song: song)
+        }
+        
+        isUploadComplete = true
+    }
+    
+    private func markNoAudio() {
+        let emptySong = Song(
+            id: UUID().uuidString,
+            name: "No Recording",
+            fileURL: nil,
+            format: .wav,
+            artists: session.singers.map { Artist(id: UUID().uuidString, name: $0) },
+            lyrics: nil,
+            dateCreated: Date(),
+            fileSize: nil,
+            duration: nil,
+            sessionId: session.id
+        )
+        
+        appState.sessionManager.addSongToSession(sessionId: session.id, song: emptySong)
+        
+        dismiss()
+    }
+}
+
+struct ArtistListItem: View {
+    var artist: Artist
+    var onDelete: () -> Void
+    
+    var body: some View {
+        HStack {
+            VStack(alignment: .leading, spacing: 4) {
+                Text(artist.name)
+                    .font(.headline)
+                
+                if let cpf = artist.cpf {
+                    Text("CPF: \(cpf)")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
+                
+                if let email = artist.email {
+                    Text(email)
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
+            }
+            
+            Spacer()
+            
+            Button(action: onDelete) {
+                Image(systemName: "trash")
+                    .foregroundColor(.red)
+            }
+        }
+        .padding()
+        .background(Color.white)
+        .cornerRadius(8)
+        .overlay(
+            RoundedRectangle(cornerRadius: 8)
+                .stroke(Color.gray.opacity(0.3), lineWidth: 1)
+        )
+    }
+}
+
+struct SessionInfoHeader: View {
+    var session: Session
+    
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("\(session.studio.rawValue) Session")
+                .font(.title2)
+                .fontWeight(.bold)
+            
+            Text(session.date.formatted(date: .long, time: .shortened))
+                .font(.callout)
+                .foregroundColor(.secondary)
+            
+            Divider()
+                .padding(.vertical, 4)
+            
+            HStack(alignment: .top) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Producer:")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                    
+                    Text(session.mainProducer)
+                        .font(.body)
+                }
+                
+                Spacer()
+                
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Artists:")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                    
+                    Text(session.singers.joined(separator: ", "))
+                        .font(.body)
+                }
+            }
+        }
+        .padding()
+        .background(Color.white)
+        .cornerRadius(12)
+        .shadow(color: Color.black.opacity(0.1), radius: 5, x: 0, y: 2)
+    }
+} 

@@ -8,17 +8,23 @@
 import SwiftUI
 
 struct ContentView: View {
+    @EnvironmentObject var appState: AppState
+    
     var body: some View {
-        VStack {
-            Image(systemName: "globe")
-                .imageScale(.large)
-                .foregroundStyle(.tint)
-            Text("Hello, world!")
+        Group {
+            if appState.userManager.isLoggedIn {
+                MainTabView()
+                    .preferredColorScheme(.light)
+            } else {
+                WelcomeView()
+                    .preferredColorScheme(.light)
+            }
         }
-        .padding()
+        .preferredColorScheme(.light) // Enforce light mode at the root level
     }
 }
 
 #Preview {
     ContentView()
+        .environmentObject(AppState())
 }
