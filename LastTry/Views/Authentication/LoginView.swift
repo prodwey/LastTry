@@ -134,7 +134,8 @@ struct LoginView: View {
     
     // Helper method to perform password reset request asynchronously
     private func startPasswordResetProcess(email: String) {
-        Task {
+        // Using fully qualified name for Swift's concurrency Task
+        Swift.Task {
             // Clear any previous errors
             await MainActor.run {
                 self.appState.authService.clearError()

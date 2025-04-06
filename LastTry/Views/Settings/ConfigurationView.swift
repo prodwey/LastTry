@@ -498,7 +498,8 @@ struct PasswordChangeView: View {
     
     // Helper method to perform password change asynchronously
     private func startPasswordChangeProcess(currentPassword: String, newPassword: String) {
-        Task {
+        // Using fully qualified name for Swift's concurrency Task
+        Swift.Task {
             let result = await self.appState.authService.updatePassword(
                 currentPassword: currentPassword,
                 newPassword: newPassword
