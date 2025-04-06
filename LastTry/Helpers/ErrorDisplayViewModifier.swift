@@ -149,8 +149,4 @@ extension View {
             onDismiss: onDismiss
         ))
     }
-    
-    func withLoading(isLoading: Bool, message: String = "Loading...") -> some View {
-        self.modifier(LoadingModifier(isLoading: isLoading, message: message))
-    }
 } 

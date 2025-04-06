@@ -556,11 +556,7 @@ extension View {
                 .blur(radius: isLoading ? 1 : 0)
             
             if isLoading {
-                Color.black.opacity(0.2)
-                    .ignoresSafeArea()
-                
-                LoadingView(message: message)
-                    .transition(.opacity)
+                LoadingOverlay(isLoading: isLoading, message: message)
             }
         }
         .animation(.easeInOut(duration: 0.2), value: isLoading)

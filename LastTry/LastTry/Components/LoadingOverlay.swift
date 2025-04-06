@@ -36,22 +36,10 @@ struct LoadingOverlay: View {
     }
 }
 
-// View modifier to make it easy to add loading state to any view
-extension View {
-    func withLoading(isLoading: Bool, message: String? = nil) -> some View {
-        ZStack {
-            self
-                .disabled(isLoading) // Disable underlying view interactions when loading
-            
-            LoadingOverlay(isLoading: isLoading, message: message)
-        }
-    }
-}
-
 #Preview {
     VStack {
         Text("Sample Content")
             .padding()
     }
-    .withLoading(isLoading: true, message: "Loading data...")
+    .overlay(LoadingOverlay(isLoading: true, message: "Loading data..."))
 } 
