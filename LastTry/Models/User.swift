@@ -5,8 +5,7 @@ import FirebaseAuth
 import Combine
 import SwiftUI
 
-// Typealias to distinguish Swift concurrency Task from our model Task
-typealias ConcurrencyTask = _Concurrency.Task
+// Remove typealias as we're using the helper function approach
 
 enum UserRole: String, CaseIterable, Identifiable, Codable {
     case producer = "Producer"
@@ -169,8 +168,8 @@ class UserManager: ObservableObject {
         dateOfBirth: Date,
         role: UserRole
     ) {
-        // Using ConcurrencyTask to avoid conflict with our Task model
-        ConcurrencyTask {
+        // Using runAsync helper instead of ConcurrencyTask
+        runAsync {
             let result = await appState.authService.signUp(email: email, password: password)
             
             switch result {
@@ -196,13 +195,13 @@ class UserManager: ObservableObject {
                 )
                 
                 // Update UI on main thread
-                await MainActor.run {
+                await runOnMainActor {
                     self.saveUserToCoreData(newUser)
                 }
                 
             case .failure(let error):
                 print("UserManager: Error creating user: \(error.localizedDescription)")
-                await MainActor.run {
+                await runOnMainActor {
                     self.authError = error.localizedDescription
                 }
             }
@@ -226,11 +225,11 @@ class UserManager: ObservableObject {
     
     // Helper method to perform login asynchronously
     private func startLoginProcess(appState: AppState, email: String, password: String) {
-        // Using ConcurrencyTask to avoid conflict with our Task model
-        ConcurrencyTask {
+        // Using runAsync helper instead of ConcurrencyTask
+        runAsync {
             let result = await appState.authService.signIn(email: email, password: password)
             
-            await MainActor.run {
+            await runOnMainActor {
                 if case .failure(let error) = result {
                     self.authError = error.localizedDescription
                 } else {
@@ -298,8 +297,8 @@ class UserManager: ObservableObject {
         name: String,
         email: String
     ) {
-        // Using ConcurrencyTask to avoid conflict with our Task model
-        ConcurrencyTask {
+        // Using runAsync helper instead of ConcurrencyTask
+        runAsync {
             // Update display name
             let nameResult = await appState.authService.updateUserProfile(displayName: name)
             if case .failure(let error) = nameResult {
@@ -335,8 +334,8 @@ class UserManager: ObservableObject {
         currentPassword: String,
         newPassword: String
     ) {
-        // Using ConcurrencyTask to avoid conflict with our Task model
-        ConcurrencyTask {
+        // Using runAsync helper instead of ConcurrencyTask
+        runAsync {
             let _ = await appState.authService.updatePassword(
                 currentPassword: currentPassword,
                 newPassword: newPassword

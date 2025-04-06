@@ -1,9 +1,6 @@
 import SwiftUI
 import Firebase
 
-// Typealias to distinguish Swift concurrency Task from our model Task
-typealias ConcurrencyTask = _Concurrency.Task
-
 struct ConfigurationView: View {
     @EnvironmentObject var appState: AppState
     @State private var showingPasswordSheet = false
@@ -502,14 +499,14 @@ struct PasswordChangeView: View {
     
     // Helper method to perform password change asynchronously
     private func startPasswordChangeProcess(currentPassword: String, newPassword: String) {
-        // Using ConcurrencyTask to avoid conflict with our Task model
-        ConcurrencyTask {
+        // Using runAsync helper instead of ConcurrencyTask
+        runAsync {
             let result = await self.appState.authService.updatePassword(
                 currentPassword: currentPassword,
                 newPassword: newPassword
             )
             
-            await MainActor.run {
+            await runOnMainActor {
                 isChanging = false
                 
                 switch result {

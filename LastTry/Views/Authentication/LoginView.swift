@@ -1,9 +1,6 @@
 import SwiftUI
 import FirebaseAuth
 
-// Typealias to distinguish Swift concurrency Task from our model Task
-typealias ConcurrencyTask = _Concurrency.Task
-
 struct LoginView: View {
     @EnvironmentObject var appState: AppState
     @Environment(\.dismiss) private var dismiss
@@ -137,17 +134,17 @@ struct LoginView: View {
     
     // Helper method to perform password reset request asynchronously
     private func startPasswordResetProcess(email: String) {
-        // Using ConcurrencyTask to avoid conflict with our Task model
-        ConcurrencyTask {
+        // Using runAsync helper instead of ConcurrencyTask
+        runAsync {
             // Clear any previous errors
-            await MainActor.run {
+            await runOnMainActor {
                 self.appState.authService.clearError()
             }
             
             let result = await self.appState.authService.sendPasswordReset(to: email)
             
             // Update UI on main thread
-            await MainActor.run {
+            await runOnMainActor {
                 switch result {
                 case .success:
                     self.errorMessage = "Password reset email sent. Please check your inbox."
