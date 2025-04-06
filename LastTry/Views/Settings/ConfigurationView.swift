@@ -1,6 +1,9 @@
 import SwiftUI
 import Firebase
 
+// Typealias to distinguish Swift concurrency Task from our model Task
+typealias ConcurrencyTask = _Concurrency.Task
+
 struct ConfigurationView: View {
     @EnvironmentObject var appState: AppState
     @State private var showingPasswordSheet = false
@@ -499,22 +502,23 @@ struct PasswordChangeView: View {
     
     // Helper method to perform password change asynchronously
     private func startPasswordChangeProcess(currentPassword: String, newPassword: String) {
-        // Using Task.detached for proper async handling
-        Task.detached { @MainActor in
+        // Using ConcurrencyTask to avoid conflict with our Task model
+        ConcurrencyTask {
             let result = await self.appState.authService.updatePassword(
                 currentPassword: currentPassword,
                 newPassword: newPassword
             )
             
-            // We're already on the main thread with @MainActor
-            isChanging = false
-            
-            switch result {
-            case .success:
-                showingSuccessAlert = true
-            case .failure(let error):
-                errorMessage = error.localizedDescription
-                showingErrorAlert = true
+            await MainActor.run {
+                isChanging = false
+                
+                switch result {
+                case .success:
+                    showingSuccessAlert = true
+                case .failure(let error):
+                    errorMessage = error.localizedDescription
+                    showingErrorAlert = true
+                }
             }
         }
     }
