@@ -135,7 +135,8 @@ struct LoginView: View {
             
             let result = await appState.authService.sendPasswordReset(to: email)
             
-            DispatchQueue.main.async {
+            // Update UI on main thread
+            await MainActor.run {
                 switch result {
                 case .success:
                     errorMessage = "Password reset email sent. Please check your inbox."

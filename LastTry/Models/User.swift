@@ -196,6 +196,7 @@ class UserManager: ObservableObject {
             return
         }
         
+        // Use Task for async operation
         Task {
             let result = await appState.authService.signIn(email: email, password: password)
             
@@ -237,8 +238,8 @@ class UserManager: ObservableObject {
         
         var success = true
         
-        // Update profile in Firebase Auth
-        Task {
+        // Update profile in Firebase Auth - without returning from this function
+        let updateTask = Task {
             // Update display name
             let nameResult = await appState.authService.updateUserProfile(displayName: name)
             if case .failure(let error) = nameResult {
@@ -278,7 +279,8 @@ class UserManager: ObservableObject {
         
         var success = true
         
-        Task {
+        // Start an async task without waiting for it
+        let passwordTask = Task {
             let result = await appState.authService.updatePassword(currentPassword: currentPassword, newPassword: newPassword)
             if case .failure = result {
                 success = false

@@ -484,32 +484,21 @@ struct PasswordChangeView: View {
         // Clear any previous errors in the authentication service
         appState.authService.clearError()
         
+        // Use async/await properly without nested Task blocks
         Task {
-            // Use the AuthenticationService through UserManager for password updates
-            let success = await withCheckedContinuation { continuation in
-                Task {
-                    let result = await appState.authService.updatePassword(
-                        currentPassword: currentPassword,
-                        newPassword: newPassword
-                    )
-                    
-                    switch result {
-                    case .success:
-                        continuation.resume(returning: true)
-                    case .failure(let error):
-                        DispatchQueue.main.async {
-                            self.errorMessage = error.localizedDescription
-                        }
-                        continuation.resume(returning: false)
-                    }
-                }
-            }
+            let result = await appState.authService.updatePassword(
+                currentPassword: currentPassword,
+                newPassword: newPassword
+            )
             
-            DispatchQueue.main.async {
-                if success {
-                    self.showingSuccessAlert = true
-                } else {
-                    self.showingErrorAlert = true
+            // Update UI on main thread
+            await MainActor.run {
+                switch result {
+                case .success:
+                    showingSuccessAlert = true
+                case .failure(let error):
+                    errorMessage = error.localizedDescription
+                    showingErrorAlert = true
                 }
             }
         }
