@@ -201,7 +201,7 @@ class AuthenticationService: ObservableObject {
     }
     
     private func handleFirebaseError(_ error: Error) -> AuthError {
-        if let errorCode = AuthErrorCode.Code(rawValue: (error as NSError).code) {
+        if let errorCode = AuthErrorCode(rawValue: (error as NSError).code) {
             switch errorCode {
             case .userNotFound:
                 return .userNotFound

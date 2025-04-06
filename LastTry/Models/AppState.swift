@@ -57,13 +57,6 @@ class AppState: ObservableObject {
         newsManager.fetchNews()
     }
     
-    deinit {
-        // Remove auth state listener when AppState is deallocated
-        if let authStateListener = authStateListener {
-            Auth.auth().removeStateDidChangeListener(authStateListener)
-        }
-    }
-    
     // MARK: - Auth State Management
     
     // Setup subscription to the AuthenticationService
