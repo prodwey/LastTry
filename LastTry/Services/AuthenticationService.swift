@@ -4,7 +4,7 @@ import FirebaseAuth
 import Combine
 
 // Custom error types for authentication
-enum AuthError: Error, LocalizedError {
+enum AuthError: Error, LocalizedError, Equatable {
     case signInFailed(String)
     case signUpFailed(String)
     case signOutFailed(String)
@@ -29,6 +29,25 @@ enum AuthError: Error, LocalizedError {
             return "Network error, please try again"
         case .unknown:
             return "An unknown error occurred"
+        }
+    }
+    
+    // Implementation of Equatable for cases with associated values
+    static func == (lhs: AuthError, rhs: AuthError) -> Bool {
+        switch (lhs, rhs) {
+        case (.signInFailed(let lhsMessage), .signInFailed(let rhsMessage)):
+            return lhsMessage == rhsMessage
+        case (.signUpFailed(let lhsMessage), .signUpFailed(let rhsMessage)):
+            return lhsMessage == rhsMessage
+        case (.signOutFailed(let lhsMessage), .signOutFailed(let rhsMessage)):
+            return lhsMessage == rhsMessage
+        case (.userNotFound, .userNotFound),
+             (.invalidCredentials, .invalidCredentials),
+             (.networkError, .networkError),
+             (.unknown, .unknown):
+            return true
+        default:
+            return false
         }
     }
 }
