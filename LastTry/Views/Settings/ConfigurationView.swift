@@ -500,26 +500,25 @@ struct PasswordChangeView: View {
     
     // Helper method to perform password change asynchronously
     private func startPasswordChangeProcess(currentPassword: String, newPassword: String) {
-        // Using fully qualified name for Swift's concurrency Task
-        Task {
+        // Using explicit Task init to avoid ambiguity
+        let _ = Task.init(operation: {
             let result = await self.appState.authService.updatePassword(
                 currentPassword: currentPassword,
                 newPassword: newPassword
             )
             
-            // Update UI on main thread
             await MainActor.run {
-                self.isChanging = false
+                isChanging = false
                 
                 switch result {
                 case .success:
-                    self.showingSuccessAlert = true
+                    showingSuccessAlert = true
                 case .failure(let error):
-                    self.errorMessage = error.localizedDescription
-                    self.showingErrorAlert = true
+                    errorMessage = error.localizedDescription
+                    showingErrorAlert = true
                 }
             }
-        }
+        })
     }
 }
 

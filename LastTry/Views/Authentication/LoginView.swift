@@ -135,8 +135,8 @@ struct LoginView: View {
     
     // Helper method to perform password reset request asynchronously
     private func startPasswordResetProcess(email: String) {
-        // Using Task for async operations
-        Task {
+        // Using explicit Task init to avoid ambiguity
+        let _ = Task.init(operation: {
             // Clear any previous errors
             await MainActor.run {
                 self.appState.authService.clearError()
@@ -155,7 +155,7 @@ struct LoginView: View {
                     self.showErrorAlert = true
                 }
             }
-        }
+        })
     }
 }
 
