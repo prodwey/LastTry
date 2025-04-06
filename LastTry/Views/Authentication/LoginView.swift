@@ -54,12 +54,7 @@ struct LoginView: View {
                 Button {
                     login()
                 } label: {
-                    if isLoggingIn {
-                        ProgressView()
-                            .progressViewStyle(CircularProgressViewStyle(tint: .white))
-                    } else {
-                        Text("Log In")
-                    }
+                    Text("Log In")
                 }
                 .buttonStyle(PrimaryButtonStyle())
                 .frame(maxWidth: 280)
@@ -86,20 +81,21 @@ struct LoginView: View {
                 dismissButton: .default(Text("OK"))
             )
         }
-        .onChange(of: appState.userManager.authError) { newError in
+        .withLoading(isLoading: isLoggingIn, message: "Logging in...")
+        .onChange(of: appState.userManager.authError) { _, newError in
             if let error = newError {
                 errorMessage = error.localizedDescription
                 showErrorAlert = true
                 isLoggingIn = false
             }
         }
-        .onChange(of: appState.isAuthenticated) { isAuthenticated in
+        .onChange(of: appState.isAuthenticated) { _, isAuthenticated in
             print("LoginView: App authentication state changed to \(isAuthenticated)")
             if isAuthenticated {
                 isLoggingIn = false
             }
         }
-        .onChange(of: appState.authService.authError) { newError in
+        .onChange(of: appState.authService.authError) { _, newError in
             if let error = newError {
                 errorMessage = error.localizedDescription
                 showErrorAlert = true

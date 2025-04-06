@@ -38,11 +38,7 @@ struct TaskListView: View {
                     Color.appBackground
                         .ignoresSafeArea()
                     
-                    if isLoading {
-                        ProgressView()
-                            .scaleEffect(1.5)
-                            .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    } else if appState.taskManager.tasks.isEmpty {
+                    if appState.taskManager.tasks.isEmpty && !isLoading {
                         EmptyStateView(
                             icon: "checklist",
                             title: "No Tasks",
@@ -105,6 +101,7 @@ struct TaskListView: View {
                 .sheet(isPresented: $showAddTaskSheet) {
                     AddTaskView()
                 }
+                .withLoading(isLoading: isLoading, message: "Loading tasks...")
                 .onChange(of: appState.taskManager.taskError) { _, newError in
                     if let taskError = newError as? TaskError, let processedError = DetailedErrorProcessor.convertTaskError(taskError) {
                         errorMessage = processedError.message

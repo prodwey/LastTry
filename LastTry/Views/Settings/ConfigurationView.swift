@@ -185,14 +185,6 @@ struct ConfigurationView: View {
                                         }
                                         .buttonStyle(PrimaryButtonStyle())
                                         .disabled(isSaving)
-                                        .overlay(
-                                            Group {
-                                                if isSaving {
-                                                    ProgressView()
-                                                        .progressViewStyle(CircularProgressViewStyle(tint: .white))
-                                                }
-                                            }
-                                        )
                                         
                                         Button("Cancel") {
                                             resetForm(with: user)
@@ -304,6 +296,7 @@ struct ConfigurationView: View {
             .toolbarBackground(Color.appBackground, for: .navigationBar)
             .toolbarBackground(.visible, for: .navigationBar)
             .toolbarColorScheme(.dark, for: .navigationBar)
+            .withLoading(isLoading: isSaving, message: "Saving profile...")
         }
         .sheet(isPresented: $showingPasswordSheet) {
             PasswordChangeView()
@@ -434,14 +427,6 @@ struct PasswordChangeView: View {
                     .disabled(!isFormValid || isChanging)
                     .frame(maxWidth: .infinity, alignment: .center)
                     .foregroundColor(isFormValid && !isChanging ? .appPrimary : .gray)
-                    .overlay(
-                        Group {
-                            if isChanging {
-                                ProgressView()
-                                    .progressViewStyle(CircularProgressViewStyle(tint: .appPrimary))
-                            }
-                        }
-                    )
                 }
             }
             .scrollContentBackground(.hidden)
@@ -455,6 +440,7 @@ struct PasswordChangeView: View {
                     }
                 }
             }
+            .withLoading(isLoading: isChanging, message: "Updating password...")
             .alert("Error", isPresented: $showingErrorAlert) {
                 Button("OK", role: .cancel) { }
             } message: {

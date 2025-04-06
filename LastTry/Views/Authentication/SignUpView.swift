@@ -132,12 +132,7 @@ struct SignUpView: View {
                     Button {
                         signUp()
                     } label: {
-                        if isSigningUp {
-                            ProgressView()
-                                .progressViewStyle(CircularProgressViewStyle(tint: .white))
-                        } else {
-                            Text("Create Account")
-                        }
+                        Text("Create Account")
                     }
                     .buttonStyle(PrimaryButtonStyle())
                     .frame(maxWidth: 280)
@@ -163,20 +158,21 @@ struct SignUpView: View {
                 dismissButton: .default(Text("OK"))
             )
         }
-        .onChange(of: appState.userManager.authError) { newError in
+        .withLoading(isLoading: isSigningUp, message: "Creating account...")
+        .onChange(of: appState.userManager.authError) { _, newError in
             if let error = newError {
                 errorMessage = error.localizedDescription
                 showError = true
                 isSigningUp = false
             }
         }
-        .onChange(of: appState.isAuthenticated) { isAuthenticated in
+        .onChange(of: appState.isAuthenticated) { _, isAuthenticated in
             print("SignUpView: App authentication state changed to \(isAuthenticated)")
             if isAuthenticated {
                 isSigningUp = false
             }
         }
-        .onChange(of: appState.authService.authError) { newError in
+        .onChange(of: appState.authService.authError) { _, newError in
             if let error = newError {
                 errorMessage = error.localizedDescription
                 showError = true
