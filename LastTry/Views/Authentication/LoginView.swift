@@ -129,25 +129,31 @@ struct LoginView: View {
     
     private func sendPasswordReset() {
         // Use our AuthenticationService instead of Firebase Auth directly
-        // Wrap the Task in parentheses to avoid trailing closure ambiguity
-        let _ = (Task {
+        startPasswordResetProcess(email: email)
+    }
+    
+    // Helper method to perform password reset request asynchronously
+    private func startPasswordResetProcess(email: String) {
+        Task.detached(priority: .userInitiated) {
             // Clear any previous errors
-            appState.authService.clearError()
+            await MainActor.run {
+                self.appState.authService.clearError()
+            }
             
-            let result = await appState.authService.sendPasswordReset(to: email)
+            let result = await self.appState.authService.sendPasswordReset(to: email)
             
             // Update UI on main thread
             await MainActor.run {
                 switch result {
                 case .success:
-                    errorMessage = "Password reset email sent. Please check your inbox."
-                    showErrorAlert = true
+                    self.errorMessage = "Password reset email sent. Please check your inbox."
+                    self.showErrorAlert = true
                 case .failure(let error):
-                    errorMessage = "Could not send password reset: \(error.localizedDescription)"
-                    showErrorAlert = true
+                    self.errorMessage = "Could not send password reset: \(error.localizedDescription)"
+                    self.showErrorAlert = true
                 }
             }
-        })
+        }
     }
 }
 

@@ -145,9 +145,29 @@ class UserManager: ObservableObject {
             return
         }
         
-        // Create the user in Firebase Authentication using our service
-        // Properly wrap the Task in parentheses to avoid confusion with trailing closures
-        let _ = (Task {
+        // Use a separate async function to handle the sign-up logic
+        startSignUpProcess(
+            appState: appState,
+            name: name,
+            email: email,
+            password: password,
+            dateOfBirth: dateOfBirth,
+            role: role
+        )
+    }
+    
+    // Helper method to perform sign-up asynchronously
+    private func startSignUpProcess(
+        appState: AppState,
+        name: String,
+        email: String,
+        password: String,
+        dateOfBirth: Date,
+        role: UserRole
+    ) {
+        // Using an async function called from a synchronous context
+        // No trailing closure syntax here
+        Task.detached(priority: .userInitiated) {
             let result = await appState.authService.signUp(email: email, password: password)
             
             switch result {
@@ -183,7 +203,7 @@ class UserManager: ObservableObject {
                     self.authError = error.localizedDescription
                 }
             }
-        })
+        }
     }
     
     // Login using the authentication service
@@ -197,8 +217,14 @@ class UserManager: ObservableObject {
             return
         }
         
-        // Use Task for async operation - wrapped in parentheses to avoid trailing closure ambiguity
-        let _ = (Task {
+        // Use a separate async function to handle the login logic
+        startLoginProcess(appState: appState, email: email, password: password)
+    }
+    
+    // Helper method to perform login asynchronously
+    private func startLoginProcess(appState: AppState, email: String, password: String) {
+        // Using Task.detached to avoid any closure ambiguities
+        Task.detached(priority: .userInitiated) {
             let result = await appState.authService.signIn(email: email, password: password)
             
             await MainActor.run {
@@ -209,7 +235,7 @@ class UserManager: ObservableObject {
                     // Auth state listener in AppState will handle the rest
                 }
             }
-        })
+        }
     }
     
     // Logout using the authentication service
@@ -237,28 +263,13 @@ class UserManager: ObservableObject {
         guard var user = currentUser, let appState = appState,
               let firebaseUser = appState.authService.currentUser else { return false }
         
-        // Store a local success flag
-        var localSuccess = true
-        
-        // Update profile in Firebase Auth - using Task and handling it properly
-        // Wrap the Task in parentheses to make it clear it's not a trailing closure
-        let _ = (Task {
-            // Update display name
-            let nameResult = await appState.authService.updateUserProfile(displayName: name)
-            if case .failure(let error) = nameResult {
-                print("Error updating display name: \(error.localizedDescription)")
-                localSuccess = false
-            }
-            
-            // Update email if changed
-            if email != user.email {
-                let emailResult = await appState.authService.updateEmail(to: email)
-                if case .failure(let error) = emailResult {
-                    print("Error updating email: \(error.localizedDescription)")
-                    localSuccess = false
-                }
-            }
-        })
+        // Start profile update process in the background
+        startProfileUpdateProcess(
+            appState: appState,
+            user: user,
+            name: name,
+            email: email
+        )
         
         // Update local user model
         user.name = name
@@ -274,23 +285,58 @@ class UserManager: ObservableObject {
         }
         
         saveUserData()
-        return true // Since we're not awaiting the Task, return success for now
+        return true // Since we're starting an async process, return success for now
+    }
+    
+    // Helper method to perform profile update asynchronously
+    private func startProfileUpdateProcess(
+        appState: AppState,
+        user: User,
+        name: String,
+        email: String
+    ) {
+        Task.detached(priority: .userInitiated) {
+            // Update display name
+            let nameResult = await appState.authService.updateUserProfile(displayName: name)
+            if case .failure(let error) = nameResult {
+                print("Error updating display name: \(error.localizedDescription)")
+            }
+            
+            // Update email if changed
+            if email != user.email {
+                let emailResult = await appState.authService.updateEmail(to: email)
+                if case .failure(let error) = emailResult {
+                    print("Error updating email: \(error.localizedDescription)")
+                }
+            }
+        }
     }
     
     func updatePassword(currentPassword: String, newPassword: String) -> Bool {
         guard let appState = appState else { return false }
         
-        // Wrap the Task in parentheses to make it clear it's not a trailing closure
-        let _ = (Task {
-            let result = await appState.authService.updatePassword(
+        // Start password update process in the background
+        startPasswordUpdateProcess(
+            appState: appState,
+            currentPassword: currentPassword,
+            newPassword: newPassword
+        )
+        
+        return true // Since we're starting an async process, return success for now
+    }
+    
+    // Helper method to perform password update asynchronously
+    private func startPasswordUpdateProcess(
+        appState: AppState,
+        currentPassword: String,
+        newPassword: String
+    ) {
+        Task.detached(priority: .userInitiated) {
+            let _ = await appState.authService.updatePassword(
                 currentPassword: currentPassword,
                 newPassword: newPassword
             )
-            // We're not awaiting this result, so we can't update a local variable
-            // and return it. This is just fire-and-forget.
-        })
-        
-        return true // Since we're not awaiting the Task, return success for now
+        }
     }
     
     // Reset user data - keep for debugging

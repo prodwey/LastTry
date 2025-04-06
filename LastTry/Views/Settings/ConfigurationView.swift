@@ -484,30 +484,38 @@ struct PasswordChangeView: View {
         // Clear any previous errors in the authentication service
         appState.authService.clearError()
         
-        // Use async/await properly without nested Task blocks
-        // Wrap the Task in parentheses to avoid trailing closure ambiguity
-        let _ = (Task {
-            let result = await appState.authService.updatePassword(
+        // Set loading state
+        isChanging = true
+        
+        // Start the password change process
+        startPasswordChangeProcess(
+            currentPassword: currentPassword,
+            newPassword: newPassword
+        )
+        
+        // We'll update the loading state in the startPasswordChangeProcess method
+    }
+    
+    // Helper method to perform password change asynchronously
+    private func startPasswordChangeProcess(currentPassword: String, newPassword: String) {
+        Task.detached(priority: .userInitiated) {
+            let result = await self.appState.authService.updatePassword(
                 currentPassword: currentPassword,
                 newPassword: newPassword
             )
             
             // Update UI on main thread
             await MainActor.run {
+                self.isChanging = false
+                
                 switch result {
                 case .success:
-                    showingSuccessAlert = true
+                    self.showingSuccessAlert = true
                 case .failure(let error):
-                    errorMessage = error.localizedDescription
-                    showingErrorAlert = true
+                    self.errorMessage = error.localizedDescription
+                    self.showingErrorAlert = true
                 }
             }
-        })
-        
-        // We're doing this here because by the time the Task is done executing,
-        // we want the UI to already show loading state is done
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-            self.isChanging = false
         }
     }
 }
