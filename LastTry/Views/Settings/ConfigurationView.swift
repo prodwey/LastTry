@@ -1,4 +1,6 @@
 import SwiftUI
+import Firebase
+import _Concurrency
 
 struct ConfigurationView: View {
     @EnvironmentObject var appState: AppState
@@ -499,7 +501,7 @@ struct PasswordChangeView: View {
     // Helper method to perform password change asynchronously
     private func startPasswordChangeProcess(currentPassword: String, newPassword: String) {
         // Using fully qualified name for Swift's concurrency Task
-        Swift.Task {
+        Task {
             let result = await self.appState.authService.updatePassword(
                 currentPassword: currentPassword,
                 newPassword: newPassword

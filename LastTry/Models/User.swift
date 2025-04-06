@@ -3,6 +3,8 @@ import CoreData
 import Firebase
 import FirebaseAuth
 import Combine
+import SwiftUI
+import _Concurrency
 
 enum UserRole: String, CaseIterable, Identifiable, Codable {
     case producer = "Producer"
@@ -165,8 +167,8 @@ class UserManager: ObservableObject {
         dateOfBirth: Date,
         role: UserRole
     ) {
-        // Using fully qualified name for Swift's concurrency Task to avoid conflict with our Task model
-        Swift.Task {
+        // Using Task for async operations
+        Task {
             let result = await appState.authService.signUp(email: email, password: password)
             
             switch result {
@@ -222,8 +224,8 @@ class UserManager: ObservableObject {
     
     // Helper method to perform login asynchronously
     private func startLoginProcess(appState: AppState, email: String, password: String) {
-        // Using fully qualified name for Swift's concurrency Task
-        Swift.Task {
+        // Using Task for async operations
+        Task {
             let result = await appState.authService.signIn(email: email, password: password)
             
             await MainActor.run {
@@ -294,8 +296,8 @@ class UserManager: ObservableObject {
         name: String,
         email: String
     ) {
-        // Using fully qualified name for Swift's concurrency Task
-        Swift.Task {
+        // Using Task for async operations
+        Task {
             // Update display name
             let nameResult = await appState.authService.updateUserProfile(displayName: name)
             if case .failure(let error) = nameResult {
@@ -331,8 +333,8 @@ class UserManager: ObservableObject {
         currentPassword: String,
         newPassword: String
     ) {
-        // Using fully qualified name for Swift's concurrency Task
-        Swift.Task {
+        // Using Task for async operations
+        Task {
             let _ = await appState.authService.updatePassword(
                 currentPassword: currentPassword,
                 newPassword: newPassword
