@@ -165,9 +165,8 @@ class UserManager: ObservableObject {
         dateOfBirth: Date,
         role: UserRole
     ) {
-        // Using an async function called from a synchronous context
-        // No trailing closure syntax here
-        Task.detached(priority: .userInitiated) {
+        // Using a standard Task with no properties to avoid Swift version issues
+        Task {
             let result = await appState.authService.signUp(email: email, password: password)
             
             switch result {
@@ -223,8 +222,8 @@ class UserManager: ObservableObject {
     
     // Helper method to perform login asynchronously
     private func startLoginProcess(appState: AppState, email: String, password: String) {
-        // Using Task.detached to avoid any closure ambiguities
-        Task.detached(priority: .userInitiated) {
+        // Using a standard Task with no properties
+        Task {
             let result = await appState.authService.signIn(email: email, password: password)
             
             await MainActor.run {
@@ -295,7 +294,8 @@ class UserManager: ObservableObject {
         name: String,
         email: String
     ) {
-        Task.detached(priority: .userInitiated) {
+        // Using a standard Task with no properties
+        Task {
             // Update display name
             let nameResult = await appState.authService.updateUserProfile(displayName: name)
             if case .failure(let error) = nameResult {
@@ -331,7 +331,8 @@ class UserManager: ObservableObject {
         currentPassword: String,
         newPassword: String
     ) {
-        Task.detached(priority: .userInitiated) {
+        // Using a standard Task with no properties
+        Task {
             let _ = await appState.authService.updatePassword(
                 currentPassword: currentPassword,
                 newPassword: newPassword
