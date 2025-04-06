@@ -88,7 +88,7 @@ struct LoginView: View {
         }
         .onChange(of: appState.userManager.authError) { newError in
             if let error = newError {
-                errorMessage = error
+                errorMessage = error.localizedDescription
                 showErrorAlert = true
                 isLoggingIn = false
             }

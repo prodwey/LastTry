@@ -366,14 +366,21 @@ struct ConfigurationView: View {
         }
         
         // If validation passes, update the profile
+        // First update name, date of birth and role
         let success = appState.userManager.updateUserProfile(
             name: name,
-            email: email,
             dateOfBirth: dateOfBirth,
             role: role
         )
         
-        if success {
+        // Check if email has changed and update if needed
+        let currentEmail = appState.userManager.currentUser?.email ?? ""
+        var emailUpdateSuccess = true
+        if email != currentEmail {
+            emailUpdateSuccess = appState.userManager.updateEmail(to: email)
+        }
+        
+        if success && emailUpdateSuccess {
             showSaveSuccessAlert = true
         } else {
             errorMessage = "Failed to update profile. Please try again."

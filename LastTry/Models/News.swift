@@ -1,6 +1,73 @@
 import Foundation
 import CoreData
 
+// Custom error types for news management
+enum NewsError: Error, LocalizedError, Equatable {
+    case itemNotFound(String)
+    case failedToFetch(String)
+    case failedToSave(String)
+    case failedToLoad(String)
+    case invalidResponse(String)
+    case networkError(String)
+    case parsingError(String)
+    case serverError(Int)
+    case rateLimitExceeded
+    case coreDataError(String)
+    
+    var errorDescription: String? {
+        switch self {
+        case .itemNotFound(let message):
+            return "News item not found: \(message)"
+        case .failedToFetch(let message):
+            return "Failed to fetch news: \(message)"
+        case .failedToSave(let message):
+            return "Failed to save news: \(message)"
+        case .failedToLoad(let message):
+            return "Failed to load news: \(message)"
+        case .invalidResponse(let message):
+            return "Invalid server response: \(message)"
+        case .networkError(let message):
+            return "Network error: \(message)"
+        case .parsingError(let message):
+            return "Error parsing data: \(message)"
+        case .serverError(let statusCode):
+            return "Server error with status code: \(statusCode)"
+        case .rateLimitExceeded:
+            return "API rate limit exceeded, try again later"
+        case .coreDataError(let message):
+            return "Database error: \(message)"
+        }
+    }
+    
+    // Implementation of Equatable for cases with associated values
+    static func == (lhs: NewsError, rhs: NewsError) -> Bool {
+        switch (lhs, rhs) {
+        case (.itemNotFound(let lhs), .itemNotFound(let rhs)):
+            return lhs == rhs
+        case (.failedToFetch(let lhs), .failedToFetch(let rhs)):
+            return lhs == rhs
+        case (.failedToSave(let lhs), .failedToSave(let rhs)):
+            return lhs == rhs
+        case (.failedToLoad(let lhs), .failedToLoad(let rhs)):
+            return lhs == rhs
+        case (.invalidResponse(let lhs), .invalidResponse(let rhs)):
+            return lhs == rhs
+        case (.networkError(let lhs), .networkError(let rhs)):
+            return lhs == rhs
+        case (.parsingError(let lhs), .parsingError(let rhs)):
+            return lhs == rhs
+        case (.serverError(let lhs), .serverError(let rhs)):
+            return lhs == rhs
+        case (.rateLimitExceeded, .rateLimitExceeded):
+            return true
+        case (.coreDataError(let lhs), .coreDataError(let rhs)):
+            return lhs == rhs
+        default:
+            return false
+        }
+    }
+}
+
 enum NewsCategory: String, CaseIterable, Identifiable, Codable {
     case brazil = "Brazil"
     case global = "Global"

@@ -5,22 +5,96 @@ import FirebaseAuth
 import Combine
 import SwiftUI
 
-// Remove typealias as we're using the helper function approach
+// Custom error types for user management
+enum UserError: Error, LocalizedError, Equatable {
+    case userNotFound(String)
+    case failedToSave(String)
+    case failedToLoad(String)
+    case failedToUpdate(String)
+    case failedToDelete(String)
+    case invalidUserData(String)
+    case duplicateUser(String)
+    case missingRequiredFields
+    case unauthorized
+    case coreDataError(String)
+    
+    var errorDescription: String? {
+        switch self {
+        case .userNotFound(let message):
+            return "User not found: \(message)"
+        case .failedToSave(let message):
+            return "Failed to save user: \(message)"
+        case .failedToLoad(let message):
+            return "Failed to load user: \(message)"
+        case .failedToUpdate(let message):
+            return "Failed to update user: \(message)"
+        case .failedToDelete(let message):
+            return "Failed to delete user: \(message)"
+        case .invalidUserData(let message):
+            return "Invalid user data: \(message)"
+        case .duplicateUser(let message):
+            return "User already exists: \(message)"
+        case .missingRequiredFields:
+            return "Missing required user fields"
+        case .unauthorized:
+            return "Unauthorized to perform this operation"
+        case .coreDataError(let message):
+            return "Database error: \(message)"
+        }
+    }
+    
+    // Implementation of Equatable for cases with associated values
+    static func == (lhs: UserError, rhs: UserError) -> Bool {
+        switch (lhs, rhs) {
+        case (.userNotFound(let lhs), .userNotFound(let rhs)):
+            return lhs == rhs
+        case (.failedToSave(let lhs), .failedToSave(let rhs)):
+            return lhs == rhs
+        case (.failedToLoad(let lhs), .failedToLoad(let rhs)):
+            return lhs == rhs
+        case (.failedToUpdate(let lhs), .failedToUpdate(let rhs)):
+            return lhs == rhs
+        case (.failedToDelete(let lhs), .failedToDelete(let rhs)):
+            return lhs == rhs
+        case (.invalidUserData(let lhs), .invalidUserData(let rhs)):
+            return lhs == rhs
+        case (.duplicateUser(let lhs), .duplicateUser(let rhs)):
+            return lhs == rhs
+        case (.missingRequiredFields, .missingRequiredFields),
+             (.unauthorized, .unauthorized):
+            return true
+        case (.coreDataError(let lhs), .coreDataError(let rhs)):
+            return lhs == rhs
+        default:
+            return false
+        }
+    }
+}
 
 enum UserRole: String, CaseIterable, Identifiable, Codable {
-    case producer = "Producer"
     case artist = "Artist"
-    case admin = "Admin"
+    case producer = "Producer"
+    case engineer = "Sound Engineer"
+    case manager = "Studio Manager"
     
     var id: String { self.rawValue }
 }
 
-struct User: Identifiable, Codable {
-    var id: String
+// Change from struct to class to allow for property mutations
+class User: Identifiable, Codable {
+    let id: String
     var name: String
     var email: String
     var dateOfBirth: Date
     var role: UserRole
+    
+    required init(id: String, name: String, email: String, dateOfBirth: Date, role: UserRole) {
+        self.id = id
+        self.name = name
+        self.email = email
+        self.dateOfBirth = dateOfBirth
+        self.role = role
+    }
     
     // Authentication-related fields would normally be handled separately
     // and not stored in plain text in a real app
@@ -34,15 +108,71 @@ extension User: CoreDataConvertible {
         UserEntity.createOrUpdate(from: self, in: context)
     }
     
-    static func fromEntity(_ entity: UserEntity) -> User {
-        entity.toModel()
+    static func fromEntity(_ entity: UserEntity) -> Self {
+        let user = entity.toModel()
+        return self.init(
+            id: user.id,
+            name: user.name,
+            email: user.email,
+            dateOfBirth: user.dateOfBirth,
+            role: user.role
+        )
+    }
+}
+
+// MARK: - User CoreData Manager
+
+class UserDataManager: CoreDataManaging {
+    typealias EntityType = UserEntity
+    typealias ModelType = User
+    
+    var entityName: String { "UserEntity" }
+    
+    func createEntity(from model: User, in context: NSManagedObjectContext) -> UserEntity {
+        // Try to find existing entity first
+        let fetchRequest: NSFetchRequest<UserEntity> = UserEntity.fetchRequest()
+        fetchRequest.predicate = NSPredicate(format: "id == %@", model.id)
+        
+        if let existingEntity = try? context.fetch(fetchRequest).first {
+            // Update existing entity
+            existingEntity.id = model.id
+            existingEntity.name = model.name
+            existingEntity.email = model.email
+            existingEntity.dateOfBirth = model.dateOfBirth
+            existingEntity.role = model.role.rawValue
+            return existingEntity
+        } else {
+            // Create new entity
+            let entity = UserEntity(context: context)
+            entity.id = model.id
+            entity.name = model.name
+            entity.email = model.email
+            entity.dateOfBirth = model.dateOfBirth
+            entity.role = model.role.rawValue
+            return entity
+        }
+    }
+    
+    func createModel(from entity: UserEntity) -> User {
+        User(
+            id: entity.id ?? UUID().uuidString,
+            name: entity.name ?? "",
+            email: entity.email ?? "",
+            dateOfBirth: entity.dateOfBirth ?? Date(),
+            role: UserRole(rawValue: entity.role ?? UserRole.artist.rawValue) ?? .artist
+        )
+    }
+    
+    // Convert [UserEntity] to [User]
+    func createModels(from entities: [UserEntity]) -> [User] {
+        entities.map { createModel(from: $0) }
     }
 }
 
 class UserManager: ObservableObject {
     @Published var currentUser: User?
     @Published var isLoggedIn: Bool = false
-    @Published var authError: String? = nil
+    @Published var authError: UserError? = nil
     
     // Reference to app state for synchronization
     weak var appState: AppState?
@@ -52,6 +182,8 @@ class UserManager: ObservableObject {
     
     // Reference to CoreData manager
     private let coreDataManager = CoreDataManager.shared
+    // Reference to the user data manager
+    private let userDataManager = UserDataManager()
     // Set of cancellables for Combine subscriptions
     private var cancellables = Set<AnyCancellable>()
     
@@ -64,15 +196,37 @@ class UserManager: ObservableObject {
         print("UserManager: Loading user data from Firebase user: \(firebaseUser.uid)")
         
         // Check if we have this user in CoreData already
-        if let existingUser = fetchUser(byID: firebaseUser.uid) {
-            print("UserManager: Found existing user in CoreData")
-            DispatchQueue.main.async {
-                self.currentUser = existingUser
-                self.isLoggedIn = true
+        let context = coreDataManager.viewContext
+        let result = userDataManager.fetchById(id: firebaseUser.uid, in: context)
+        
+        switch result {
+        case .success(let entityOptional):
+            if let entity = entityOptional {
+                print("UserManager: Found existing user in CoreData")
+                let user = userDataManager.createModel(from: entity)
+                DispatchQueue.main.async {
+                    self.currentUser = user
+                    self.isLoggedIn = true
+                }
+            } else {
+                print("UserManager: Creating new user model from Firebase user")
+                // Create a basic user profile with available data
+                let newUser = User(
+                    id: firebaseUser.uid,
+                    name: firebaseUser.displayName ?? "User",
+                    email: firebaseUser.email ?? "",
+                    dateOfBirth: Date(),
+                    role: .artist
+                )
+                
+                // Save to CoreData and update state
+                saveUserToCoreData(newUser)
             }
-        } else {
-            print("UserManager: Creating new user model from Firebase user")
-            // Create a basic user profile with available data
+        case .failure(let error):
+            print("UserManager: Error fetching user: \(error.localizedDescription)")
+            self.authError = .coreDataError("Database error: \(error.localizedDescription)")
+            
+            // Create a basic user profile anyway
             let newUser = User(
                 id: firebaseUser.uid,
                 name: firebaseUser.displayName ?? "User",
@@ -119,18 +273,21 @@ class UserManager: ObservableObject {
         // Save to UserDefaults for backward compatibility
         saveUserData()
         
-        // Save to CoreData
-        coreDataManager.performBackgroundTask { context in
-            let _ = user.toEntity(in: context)
+        // Save to CoreData using background task
+        _ = userDataManager.performBackgroundTask { context in
+            let result = self.userDataManager.saveOrUpdate(model: user, idValue: user.id, in: context)
             
-            // Ensure CoreData context is saved
-            if context.hasChanges {
-                do {
-                    try context.save()
-                    print("UserManager: CoreData context saved successfully")
-                } catch {
-                    print("UserManager: Error saving CoreData context: \(error)")
+            switch result {
+            case .success(_):
+                print("UserManager: CoreData context saved successfully")
+                return .success(())
+            case .failure(let error):
+                print("UserManager: Error saving CoreData context: \(error.localizedDescription)")
+                // Need to dispatch to main thread since we're setting a @Published property
+                DispatchQueue.main.async {
+                    self.authError = .coreDataError("Failed to save user: \(error.localizedDescription)")
                 }
+                return .failure(error)
             }
         }
     }
@@ -144,7 +301,7 @@ class UserManager: ObservableObject {
         
         guard let appState = appState else {
             print("UserManager: No app state reference")
-            self.authError = "Internal error"
+            self.authError = .invalidUserData("Internal error: Missing app state reference")
             return
         }
         
@@ -202,7 +359,7 @@ class UserManager: ObservableObject {
             case .failure(let error):
                 print("UserManager: Error creating user: \(error.localizedDescription)")
                 await runOnMainActor {
-                    self.authError = error.localizedDescription
+                    self.authError = .invalidUserData(error.localizedDescription)
                 }
             }
         }
@@ -215,7 +372,7 @@ class UserManager: ObservableObject {
         
         guard let appState = appState else {
             print("UserManager: No app state reference")
-            self.authError = "Internal error"
+            self.authError = .invalidUserData("Internal error: Missing app state reference")
             return
         }
         
@@ -231,7 +388,7 @@ class UserManager: ObservableObject {
             
             await runOnMainActor {
                 if case .failure(let error) = result {
-                    self.authError = error.localizedDescription
+                    self.authError = .invalidUserData(error.localizedDescription)
                 } else {
                     print("UserManager: Login successful")
                     // Auth state listener in AppState will handle the rest
@@ -261,62 +418,116 @@ class UserManager: ObservableObject {
     
     // MARK: - User Profile Management
     
-    func updateUserProfile(name: String, email: String, dateOfBirth: Date, role: UserRole) -> Bool {
-        guard var user = currentUser, let appState = appState,
-              let firebaseUser = appState.authService.currentUser else { return false }
-        
-        // Start profile update process in the background
-        startProfileUpdateProcess(
-            appState: appState,
-            user: user,
-            name: name,
-            email: email
-        )
-        
-        // Update local user model
-        user.name = name
-        user.email = email
-        user.dateOfBirth = dateOfBirth
-        user.role = role
-        
-        self.currentUser = user
-        
-        // Save to CoreData
-        coreDataManager.performBackgroundTask { context in
-            let _ = user.toEntity(in: context)
+    func updateUserProfile(name: String, dateOfBirth: Date, role: UserRole) -> Bool {
+        guard let currentUser = currentUser else {
+            self.authError = .userNotFound("No user is currently logged in")
+            return false
         }
         
-        saveUserData()
+        // Update user model
+        currentUser.name = name
+        currentUser.dateOfBirth = dateOfBirth
+        currentUser.role = role
+        
+        // Update in CoreData
+        if !updateUserInCoreData(currentUser) {
+            self.authError = .failedToUpdate("Failed to update user profile in database")
+            return false
+        }
+        
+        // Update in Firebase if we have app state reference
+        if let appState = appState {
+            startUpdateUserProfileProcess(appState: appState, name: name)
+        } else {
+            print("UserManager: No app state reference for Firebase profile update")
+        }
+        
+        self.currentUser = currentUser
+        return true
+    }
+    
+    // Helper method to update user profile in Firebase asynchronously
+    private func startUpdateUserProfileProcess(appState: AppState, name: String) {
+        // Using runAsync helper instead of ConcurrencyTask
+        runAsync {
+            let result = await appState.authService.updateUserProfile(displayName: name)
+            
+            if case .failure(let error) = result {
+                print("UserManager: Error updating Firebase profile: \(error.localizedDescription)")
+                await runOnMainActor {
+                    self.authError = .failedToUpdate("Error updating profile: \(error.localizedDescription)")
+                }
+            } else {
+                print("UserManager: Firebase profile updated successfully")
+            }
+        }
+    }
+    
+    // Update user email
+    func updateEmail(to newEmail: String) -> Bool {
+        guard let appState = appState else {
+            self.authError = .invalidUserData("Internal error: Missing app state reference")
+            return false
+        }
+        
+        guard let currentUser = self.currentUser else {
+            self.authError = .userNotFound("No user is currently logged in")
+            return false
+        }
+        
+        // Start email update process in the background
+        startEmailUpdateProcess(appState: appState, newEmail: newEmail, user: currentUser)
+        
         return true // Since we're starting an async process, return success for now
     }
     
-    // Helper method to perform profile update asynchronously
-    private func startProfileUpdateProcess(
-        appState: AppState,
-        user: User,
-        name: String,
-        email: String
-    ) {
+    // Update user in CoreData - updated to use Result
+    private func updateUserInCoreData(_ user: User) -> Bool {
+        let context = coreDataManager.viewContext
+        let result = userDataManager.saveOrUpdate(model: user, idValue: user.id, in: context)
+        
+        switch result {
+        case .success(_):
+            return true
+        case .failure(let error):
+            print("Error updating user in CoreData: \(error.localizedDescription)")
+            self.authError = .coreDataError("Database error: \(error.localizedDescription)")
+            return false
+        }
+    }
+    
+    // Helper method to perform email update asynchronously
+    private func startEmailUpdateProcess(appState: AppState, newEmail: String, user: User) {
         // Using runAsync helper instead of ConcurrencyTask
         runAsync {
-            // Update display name
-            let nameResult = await appState.authService.updateUserProfile(displayName: name)
-            if case .failure(let error) = nameResult {
-                print("Error updating display name: \(error.localizedDescription)")
-            }
+            let result = await appState.authService.updateEmail(to: newEmail)
             
-            // Update email if changed
-            if email != user.email {
-                let emailResult = await appState.authService.updateEmail(to: email)
-                if case .failure(let error) = emailResult {
-                    print("Error updating email: \(error.localizedDescription)")
+            await runOnMainActor {
+                if case .failure(let error) = result {
+                    self.authError = .failedToUpdate("Failed to update email: \(error.localizedDescription)")
+                } else {
+                    print("UserManager: Email updated successfully")
+                    // Update the local user model
+                    user.email = newEmail
+                    
+                    // Save to CoreData
+                    if !self.updateUserInCoreData(user) {
+                        self.authError = .failedToUpdate("Failed to update email in local database")
+                    }
+                    
+                    // Update the published property to trigger UI updates
+                    self.currentUser = user
                 }
             }
         }
     }
     
+    // Update user password
     func updatePassword(currentPassword: String, newPassword: String) -> Bool {
-        guard let appState = appState else { return false }
+        guard let appState = appState else {
+            self.authError = .invalidUserData("Internal error: Missing app state reference")
+            return false
+        }
         
         // Start password update process in the background
         startPasswordUpdateProcess(
@@ -336,10 +547,18 @@ class UserManager: ObservableObject {
     ) {
         // Using runAsync helper instead of ConcurrencyTask
         runAsync {
-            let _ = await appState.authService.updatePassword(
+            let result = await appState.authService.updatePassword(
                 currentPassword: currentPassword,
                 newPassword: newPassword
             )
+            
+            await runOnMainActor {
+                if case .failure(let error) = result {
+                    self.authError = .failedToUpdate("Failed to update password: \(error.localizedDescription)")
+                } else {
+                    print("UserManager: Password updated successfully")
+                }
+            }
         }
     }
     
@@ -356,22 +575,22 @@ class UserManager: ObservableObject {
     
     // MARK: - CoreData methods
     
-    // Fetch a user by ID from CoreData
+    // Fetch a user by ID from CoreData - updated to use Result
     func fetchUser(byID id: String) -> User? {
         let context = coreDataManager.viewContext
-        let fetchRequest: NSFetchRequest<UserEntity> = UserEntity.fetchRequest()
-        fetchRequest.predicate = NSPredicate(format: "id == %@", id)
+        let result = userDataManager.fetchById(id: id, in: context)
         
-        do {
-            let results = try context.fetch(fetchRequest)
-            if let entity = results.first {
-                return User.fromEntity(entity)
+        switch result {
+        case .success(let entityOptional):
+            if let entity = entityOptional {
+                return userDataManager.createModel(from: entity)
             }
-        } catch {
-            print("Error fetching user from CoreData: \(error)")
+            return nil
+        case .failure(let error):
+            print("Error fetching user from CoreData: \(error.localizedDescription)")
+            self.authError = .coreDataError("Failed to fetch user: \(error.localizedDescription)")
+            return nil
         }
-        
-        return nil
     }
     
     // Fetch all users from CoreData

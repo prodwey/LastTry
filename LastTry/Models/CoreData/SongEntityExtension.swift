@@ -12,6 +12,7 @@ extension SongEntity {
             artistModels = artistEntities.map { $0.toModel() }
         }
         
+        // No need to convert - fileURL is already a URL in CoreData
         return Song(
             id: self.id ?? UUID().uuidString,
             name: self.name ?? "",
@@ -40,7 +41,10 @@ extension SongEntity {
             // Update properties
             entity.id = model.id
             entity.name = model.name
+            
+            // Direct assignment - no need to convert URL to string
             entity.fileURL = model.fileURL
+            
             entity.format = model.format.rawValue
             entity.lyrics = model.lyrics
             entity.dateCreated = model.dateCreated
@@ -82,7 +86,10 @@ extension SongEntity {
             let entity = SongEntity(context: context)
             entity.id = model.id
             entity.name = model.name
+            
+            // Direct assignment - no need to convert URL to string
             entity.fileURL = model.fileURL
+            
             entity.format = model.format.rawValue
             entity.lyrics = model.lyrics
             entity.dateCreated = model.dateCreated

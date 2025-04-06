@@ -101,8 +101,11 @@ struct SignUpView: View {
                                 .font(.system(size: 14, weight: .medium))
                                 .foregroundColor(.appTextSecondary)
                             
+                            // Break up complex expression by creating a simpler array first
+                            let roleOptions = UserRole.allCases.filter { $0 != .manager }
+                            
                             HStack(spacing: 12) {
-                                ForEach(UserRole.allCases.filter { $0 != .admin }) { userRole in
+                                ForEach(roleOptions) { userRole in
                                     Button {
                                         role = userRole
                                     } label: {
@@ -162,7 +165,7 @@ struct SignUpView: View {
         }
         .onChange(of: appState.userManager.authError) { newError in
             if let error = newError {
-                errorMessage = error
+                errorMessage = error.localizedDescription
                 showError = true
                 isSigningUp = false
             }
