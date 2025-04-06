@@ -1,6 +1,5 @@
 import SwiftUI
 import FirebaseAuth
-import _Concurrency
 
 struct LoginView: View {
     @EnvironmentObject var appState: AppState
@@ -135,8 +134,8 @@ struct LoginView: View {
     
     // Helper method to perform password reset request asynchronously
     private func startPasswordResetProcess(email: String) {
-        // Using explicit Task init to avoid ambiguity
-        let _ = Task.init(operation: {
+        // Using DispatchQueue.global for background work
+        DispatchQueue.global().async {
             // Clear any previous errors
             await MainActor.run {
                 self.appState.authService.clearError()
@@ -155,7 +154,7 @@ struct LoginView: View {
                     self.showErrorAlert = true
                 }
             }
-        })
+        }
     }
 }
 

@@ -4,7 +4,6 @@ import Firebase
 import FirebaseAuth
 import Combine
 import SwiftUI
-import _Concurrency
 
 enum UserRole: String, CaseIterable, Identifiable, Codable {
     case producer = "Producer"
@@ -167,8 +166,8 @@ class UserManager: ObservableObject {
         dateOfBirth: Date,
         role: UserRole
     ) {
-        // Using explicit Task init to avoid ambiguity
-        let _ = Task.init(operation: {
+        // Using DispatchQueue.global for background work
+        DispatchQueue.global().async {
             let result = await appState.authService.signUp(email: email, password: password)
             
             switch result {
@@ -204,7 +203,7 @@ class UserManager: ObservableObject {
                     self.authError = error.localizedDescription
                 }
             }
-        })
+        }
     }
     
     // Login using the authentication service
@@ -224,8 +223,8 @@ class UserManager: ObservableObject {
     
     // Helper method to perform login asynchronously
     private func startLoginProcess(appState: AppState, email: String, password: String) {
-        // Using explicit Task init to avoid ambiguity
-        let _ = Task.init(operation: {
+        // Using DispatchQueue.global for background work
+        DispatchQueue.global().async {
             let result = await appState.authService.signIn(email: email, password: password)
             
             await MainActor.run {
@@ -236,7 +235,7 @@ class UserManager: ObservableObject {
                     // Auth state listener in AppState will handle the rest
                 }
             }
-        })
+        }
     }
     
     // Logout using the authentication service
@@ -296,8 +295,8 @@ class UserManager: ObservableObject {
         name: String,
         email: String
     ) {
-        // Using explicit Task init to avoid ambiguity
-        let _ = Task.init(operation: {
+        // Using DispatchQueue.global for background work
+        DispatchQueue.global().async {
             // Update display name
             let nameResult = await appState.authService.updateUserProfile(displayName: name)
             if case .failure(let error) = nameResult {
@@ -311,7 +310,7 @@ class UserManager: ObservableObject {
                     print("Error updating email: \(error.localizedDescription)")
                 }
             }
-        })
+        }
     }
     
     func updatePassword(currentPassword: String, newPassword: String) -> Bool {
@@ -333,13 +332,13 @@ class UserManager: ObservableObject {
         currentPassword: String,
         newPassword: String
     ) {
-        // Using explicit Task init to avoid ambiguity
-        let _ = Task.init(operation: {
+        // Using DispatchQueue.global for background work
+        DispatchQueue.global().async {
             let _ = await appState.authService.updatePassword(
                 currentPassword: currentPassword,
                 newPassword: newPassword
             )
-        })
+        }
     }
     
     // Reset user data - keep for debugging
