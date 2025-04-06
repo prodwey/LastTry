@@ -166,8 +166,8 @@ class UserManager: ObservableObject {
         dateOfBirth: Date,
         role: UserRole
     ) {
-        // Using DispatchQueue.global for background work
-        DispatchQueue.global().async {
+        // Using Task.detached for proper async handling
+        Task.detached { @MainActor in
             let result = await appState.authService.signUp(email: email, password: password)
             
             switch result {
@@ -192,16 +192,12 @@ class UserManager: ObservableObject {
                     role: role
                 )
                 
-                // Save to CoreData
-                await MainActor.run {
-                    self.saveUserToCoreData(newUser)
-                }
+                // Since we're using @MainActor, we're already on the main thread
+                self.saveUserToCoreData(newUser)
                 
             case .failure(let error):
                 print("UserManager: Error creating user: \(error.localizedDescription)")
-                await MainActor.run {
-                    self.authError = error.localizedDescription
-                }
+                self.authError = error.localizedDescription
             }
         }
     }
@@ -223,17 +219,15 @@ class UserManager: ObservableObject {
     
     // Helper method to perform login asynchronously
     private func startLoginProcess(appState: AppState, email: String, password: String) {
-        // Using DispatchQueue.global for background work
-        DispatchQueue.global().async {
+        // Using Task.detached for proper async handling
+        Task.detached { @MainActor in
             let result = await appState.authService.signIn(email: email, password: password)
             
-            await MainActor.run {
-                if case .failure(let error) = result {
-                    self.authError = error.localizedDescription
-                } else {
-                    print("UserManager: Login successful")
-                    // Auth state listener in AppState will handle the rest
-                }
+            if case .failure(let error) = result {
+                self.authError = error.localizedDescription
+            } else {
+                print("UserManager: Login successful")
+                // Auth state listener in AppState will handle the rest
             }
         }
     }
@@ -295,8 +289,8 @@ class UserManager: ObservableObject {
         name: String,
         email: String
     ) {
-        // Using DispatchQueue.global for background work
-        DispatchQueue.global().async {
+        // Using Task.detached for proper async handling
+        Task.detached {
             // Update display name
             let nameResult = await appState.authService.updateUserProfile(displayName: name)
             if case .failure(let error) = nameResult {
@@ -332,8 +326,8 @@ class UserManager: ObservableObject {
         currentPassword: String,
         newPassword: String
     ) {
-        // Using DispatchQueue.global for background work
-        DispatchQueue.global().async {
+        // Using Task.detached for proper async handling
+        Task.detached {
             let _ = await appState.authService.updatePassword(
                 currentPassword: currentPassword,
                 newPassword: newPassword

@@ -499,23 +499,22 @@ struct PasswordChangeView: View {
     
     // Helper method to perform password change asynchronously
     private func startPasswordChangeProcess(currentPassword: String, newPassword: String) {
-        // Using DispatchQueue.global for background work
-        DispatchQueue.global().async {
+        // Using Task.detached for proper async handling
+        Task.detached { @MainActor in
             let result = await self.appState.authService.updatePassword(
                 currentPassword: currentPassword,
                 newPassword: newPassword
             )
             
-            await MainActor.run {
-                isChanging = false
-                
-                switch result {
-                case .success:
-                    showingSuccessAlert = true
-                case .failure(let error):
-                    errorMessage = error.localizedDescription
-                    showingErrorAlert = true
-                }
+            // We're already on the main thread with @MainActor
+            isChanging = false
+            
+            switch result {
+            case .success:
+                showingSuccessAlert = true
+            case .failure(let error):
+                errorMessage = error.localizedDescription
+                showingErrorAlert = true
             }
         }
     }

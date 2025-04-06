@@ -134,25 +134,21 @@ struct LoginView: View {
     
     // Helper method to perform password reset request asynchronously
     private func startPasswordResetProcess(email: String) {
-        // Using DispatchQueue.global for background work
-        DispatchQueue.global().async {
+        // Using Task.detached for proper async handling
+        Task.detached { @MainActor in
             // Clear any previous errors
-            await MainActor.run {
-                self.appState.authService.clearError()
-            }
+            self.appState.authService.clearError()
             
             let result = await self.appState.authService.sendPasswordReset(to: email)
             
-            // Update UI on main thread
-            await MainActor.run {
-                switch result {
-                case .success:
-                    self.errorMessage = "Password reset email sent. Please check your inbox."
-                    self.showErrorAlert = true
-                case .failure(let error):
-                    self.errorMessage = "Could not send password reset: \(error.localizedDescription)"
-                    self.showErrorAlert = true
-                }
+            // Update UI (we're already on the main thread with @MainActor)
+            switch result {
+            case .success:
+                self.errorMessage = "Password reset email sent. Please check your inbox."
+                self.showErrorAlert = true
+            case .failure(let error):
+                self.errorMessage = "Could not send password reset: \(error.localizedDescription)"
+                self.showErrorAlert = true
             }
         }
     }
