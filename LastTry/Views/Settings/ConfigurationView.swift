@@ -485,7 +485,8 @@ struct PasswordChangeView: View {
         appState.authService.clearError()
         
         // Use async/await properly without nested Task blocks
-        Task {
+        // Wrap the Task in parentheses to avoid trailing closure ambiguity
+        let _ = (Task {
             let result = await appState.authService.updatePassword(
                 currentPassword: currentPassword,
                 newPassword: newPassword
@@ -501,6 +502,12 @@ struct PasswordChangeView: View {
                     showingErrorAlert = true
                 }
             }
+        })
+        
+        // We're doing this here because by the time the Task is done executing,
+        // we want the UI to already show loading state is done
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+            self.isChanging = false
         }
     }
 }

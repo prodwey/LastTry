@@ -129,7 +129,8 @@ struct LoginView: View {
     
     private func sendPasswordReset() {
         // Use our AuthenticationService instead of Firebase Auth directly
-        Task {
+        // Wrap the Task in parentheses to avoid trailing closure ambiguity
+        let _ = (Task {
             // Clear any previous errors
             appState.authService.clearError()
             
@@ -146,7 +147,7 @@ struct LoginView: View {
                     showErrorAlert = true
                 }
             }
-        }
+        })
     }
 }
 
