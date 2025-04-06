@@ -5,13 +5,11 @@ extension TaskEntity {
     
     // Convert from TaskEntity (CoreData) to Task (Model)
     func toModel() -> Task {
-        let priority = TaskPriority(rawValue: Int(self.priority)) ?? .medium
-        
         return Task(
             id: self.id ?? UUID().uuidString,
             title: self.title ?? "",
             description: self.descriptionText ?? "",
-            priority: priority,
+            priority: TaskPriority(rawValue: Int(self.priority)) ?? .medium,
             createdAt: self.createdAt ?? Date(),
             dueDate: self.dueDate,
             assignedTo: self.assignedTo,

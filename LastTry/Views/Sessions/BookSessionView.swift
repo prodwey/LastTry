@@ -1,4 +1,27 @@
 import SwiftUI
+import Foundation
+
+// Helper wrapper to avoid "error" naming conflict
+struct SessionErrorDisplayWrapper<Content: View>: View {
+    let content: Content
+    let message: String
+    @Binding var isPresented: Bool
+    
+    init(message: String, isPresented: Binding<Bool>, @ViewBuilder content: () -> Content) {
+        self.message = message
+        self._isPresented = isPresented
+        self.content = content()
+    }
+    
+    var body: some View {
+        content
+            .withErrorDisplay(
+                message: message,
+                severity: DisplayErrorSeverity.errorSeverity,
+                isPresented: $isPresented
+            )
+    }
+}
 
 struct BookSessionView: View {
     @EnvironmentObject var appState: AppState
@@ -11,135 +34,113 @@ struct BookSessionView: View {
     @State private var duration: Double = 180 // Default to 3 hours
     
     @State private var showBookingSuccessAlert = false
-    @State private var showBookingFailedAlert = false
-    @State private var bookingFailedMessage = ""
+    @State private var showError = false
+    @State private var errorMessage = ""
+    @State private var isLoading = false
+    
+    // Explicit initializer to avoid ambiguity
+    init() {
+        // No custom initialization needed
+    }
     
     var body: some View {
-        ScrollView {
-            VStack(spacing: 20) {
-                // Studio selection with images
-                VStack(alignment: .leading, spacing: 8) {
-                    Text("Select Studio")
-                        .font(.headline)
-                        .foregroundColor(.appTextPrimary)
-                    
-                    studioSelection
-                }
-                .padding(.top, 20)
-                
-                // Form fields
-                VStack(spacing: 16) {
-                    // Main producer
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("Main Producer")
-                            .font(.caption)
-                            .foregroundColor(.appTextSecondary)
-                        
-                        TextField("", text: $mainProducer)
-                            .padding()
-                            .background(Color.appElevatedBackground)
-                            .cornerRadius(8)
-                            .overlay(
-                                RoundedRectangle(cornerRadius: 8)
-                                    .stroke(Color.appDivider, lineWidth: 1)
-                            )
-                            .foregroundColor(.appTextPrimary)
-                            .placeholder(when: mainProducer.isEmpty) {
-                                Text("Producer Name")
-                                    .foregroundColor(.appTextSecondary)
-                            }
-                    }
-                    
-                    // Additional producers
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("Additional Producers (comma separated)")
-                            .font(.caption)
-                            .foregroundColor(.appTextSecondary)
-                        
-                        TextField("", text: $additionalProducers)
-                            .padding()
-                            .background(Color.appElevatedBackground)
-                            .cornerRadius(8)
-                            .overlay(
-                                RoundedRectangle(cornerRadius: 8)
-                                    .stroke(Color.appDivider, lineWidth: 1)
-                            )
-                            .foregroundColor(.appTextPrimary)
-                            .placeholder(when: additionalProducers.isEmpty) {
-                                Text("Additional Producers")
-                                    .foregroundColor(.appTextSecondary)
-                            }
-                    }
-                    
-                    // Singers/Artists
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("Singers/Artists (comma separated)")
-                            .font(.caption)
-                            .foregroundColor(.appTextSecondary)
-                        
-                        TextField("", text: $singers)
-                            .padding()
-                            .background(Color.appElevatedBackground)
-                            .cornerRadius(8)
-                            .overlay(
-                                RoundedRectangle(cornerRadius: 8)
-                                    .stroke(Color.appDivider, lineWidth: 1)
-                            )
-                            .foregroundColor(.appTextPrimary)
-                            .placeholder(when: singers.isEmpty) {
-                                Text("Singers/Artists")
-                                    .foregroundColor(.appTextSecondary)
-                            }
-                    }
-                    
-                    // Date and time
+        SessionErrorDisplayWrapper(message: errorMessage, isPresented: $showError) {
+            ScrollView {
+                VStack(spacing: 20) {
+                    // Studio selection with images
                     VStack(alignment: .leading, spacing: 8) {
-                        Text("Date and Time")
+                        Text("Select Studio")
                             .font(.headline)
                             .foregroundColor(.appTextPrimary)
                         
-                        DatePicker("", selection: $selectedDate, displayedComponents: [.date, .hourAndMinute])
-                            .datePickerStyle(.graphical)
-                            .background(Color.white)
-                            .cornerRadius(12)
-                            .shadow(color: Color.black.opacity(0.1), radius: 5, x: 0, y: 2)
+                        studioSelection
                     }
+                    .padding(.top, 20)
                     
-                    // Duration
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text("Duration: \(Int(duration / 60)) hours \(Int(duration.truncatingRemainder(dividingBy: 60))) minutes")
-                            .font(.headline)
-                            .foregroundColor(.appTextPrimary)
+                    // Form fields
+                    VStack(spacing: 16) {
+                        // Main producer
+                        AppFormField(
+                            title: "Main Producer",
+                            placeholder: "Producer Name",
+                            text: $mainProducer,
+                            errorMessage: mainProducer.isEmpty ? "Producer name is required" : nil
+                        )
                         
-                        Slider(value: $duration, in: 60...360, step: 30)
-                            .tint(.appPrimary)
-                            .padding(.horizontal)
+                        // Additional producers
+                        AppFormField(
+                            title: "Additional Producers (comma separated)",
+                            placeholder: "Additional Producers",
+                            text: $additionalProducers
+                        )
+                        
+                        // Singers/Artists
+                        AppFormField(
+                            title: "Singers/Artists (comma separated)",
+                            placeholder: "Singers/Artists",
+                            text: $singers,
+                            errorMessage: singers.isEmpty ? "At least one singer is required" : nil
+                        )
+                        
+                        // Date and time
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text("Date and Time")
+                                .font(.headline)
+                                .foregroundColor(.appTextPrimary)
+                            
+                            DatePicker("", selection: $selectedDate, displayedComponents: [.date, .hourAndMinute])
+                                .datePickerStyle(.graphical)
+                                .background(Color.white)
+                                .cornerRadius(12)
+                                .shadow(color: Color.black.opacity(0.1), radius: 5, x: 0, y: 2)
+                        }
+                        
+                        // Duration
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text("Duration: \(Int(duration / 60)) hours \(Int(duration.truncatingRemainder(dividingBy: 60))) minutes")
+                                .font(.headline)
+                                .foregroundColor(.appTextPrimary)
+                            
+                            Slider(value: $duration, in: 60...360, step: 30)
+                                .tint(.appPrimary)
+                                .padding(.horizontal)
+                        }
                     }
+                    .padding()
+                    
+                    // Book button
+                    Button(action: bookSession) {
+                        Text("Book Session")
+                            .fontWeight(.semibold)
+                            .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(PrimaryButtonStyle())
+                    .padding(.horizontal, 40)
+                    .padding(.bottom, 30)
+                    .disabled(!isFormValid || isLoading)
                 }
-                .padding()
-                
-                // Book button
-                Button(action: bookSession) {
-                    Text("Book Session")
-                        .fontWeight(.semibold)
-                        .frame(maxWidth: .infinity)
-                }
-                .buttonStyle(PrimaryButtonStyle())
-                .padding(.horizontal, 40)
-                .padding(.bottom, 30)
-                .disabled(!isFormValid)
             }
-        }
-        .background(Color.appBackground)
-        .alert("Booking Successful", isPresented: $showBookingSuccessAlert) {
-            Button("OK", role: .cancel) { }
-        } message: {
-            Text("Your studio session has been booked successfully.")
-        }
-        .alert("Booking Failed", isPresented: $showBookingFailedAlert) {
-            Button("OK", role: .cancel) { }
-        } message: {
-            Text(bookingFailedMessage)
+            .background(Color.appBackground)
+            .alert("Booking Successful", isPresented: $showBookingSuccessAlert) {
+                Button("OK", role: .cancel) { }
+            } message: {
+                Text("Your studio session has been booked successfully.")
+            }
+            .withLoading(isLoading: isLoading, message: "Booking session...")
+            .onChange(of: appState.sessionManager.sessionError) { oldError, newError in
+                if let sessionError = newError as? SessionError, let processedError = DetailedErrorProcessor.convertSessionError(sessionError) {
+                    errorMessage = processedError.message
+                    showError = true
+                    isLoading = false
+                    
+                    // Clear error after user has seen it
+                    appState.sessionManager.sessionError = nil
+                }
+            }
+            .onDisappear {
+                // Clear any errors when leaving the view
+                appState.sessionManager.sessionError = nil
+            }
         }
     }
     
@@ -186,6 +187,8 @@ struct BookSessionView: View {
     private func bookSession() {
         guard isFormValid else { return }
         
+        isLoading = true
+        
         let additionalProducersList = additionalProducers.isEmpty 
             ? [] 
             : additionalProducers.split(separator: ",").map { String($0.trimmingCharacters(in: .whitespaces)) }
@@ -202,12 +205,16 @@ struct BookSessionView: View {
         )
         
         if success {
+            isLoading = false
             showBookingSuccessAlert = true
             resetForm()
-        } else {
-            bookingFailedMessage = "This studio is already booked for the selected time. Please choose a different time or studio."
-            showBookingFailedAlert = true
+        } else if appState.sessionManager.sessionError == nil {
+            // If there's no specific error set but booking failed
+            isLoading = false
+            errorMessage = "Failed to book session. Please try again."
+            showError = true
         }
+        // Otherwise, the onChange handler will catch the specific error
     }
     
     private func resetForm() {

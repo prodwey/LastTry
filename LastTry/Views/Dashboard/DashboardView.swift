@@ -1,10 +1,35 @@
 import SwiftUI
 
+// Helper wrapper to avoid "error" naming conflict
+struct ErrorDisplayWrapper<Content: View>: View {
+    let content: Content
+    let message: String
+    @Binding var isPresented: Bool
+    
+    init(message: String, isPresented: Binding<Bool>, @ViewBuilder content: () -> Content) {
+        self.message = message
+        self._isPresented = isPresented
+        self.content = content()
+    }
+    
+    var body: some View {
+        content
+            .withErrorDisplay(
+                message: message,
+                severity: DisplayErrorSeverity.errorSeverity,
+                isPresented: $isPresented
+            )
+    }
+}
+
 struct DashboardView: View {
     @EnvironmentObject var appState: AppState
     @State private var showingAddTaskSheet = false
     @State private var showingAITaskPrompt = false
     @State private var aiTaskPrompt = ""
+    @State private var showError = false
+    @State private var errorMessage = ""
+    @State private var isCreatingTask = false
     
     var body: some View {
         NavigationStack {
@@ -12,38 +37,46 @@ struct DashboardView: View {
                 Color.appBackground
                     .ignoresSafeArea()
                 
-                mainScrollView
-                    .navigationTitle("Home")
-                    .foregroundColor(.appTextPrimary)
-                    .toolbarBackground(Color.appBackground, for: .navigationBar)
-                    .toolbarBackground(.visible, for: .navigationBar)
-                    .toolbarColorScheme(.dark, for: .navigationBar)
-                    .sheet(isPresented: $showingAddTaskSheet) {
-                        AddTaskView()
-                    }
-                    .alert("AI Task Creation", isPresented: $showingAITaskPrompt) {
-                        TextField("Describe your task...", text: $aiTaskPrompt)
-                        
-                        Button("Cancel", role: .cancel) {
-                            aiTaskPrompt = ""
+                ErrorDisplayWrapper(message: errorMessage, isPresented: $showError) {
+                    mainScrollView
+                        .navigationTitle("Home")
+                        .foregroundColor(.appTextPrimary)
+                        .toolbarBackground(Color.appBackground, for: .navigationBar)
+                        .toolbarBackground(.visible, for: .navigationBar)
+                        .toolbarColorScheme(.dark, for: .navigationBar)
+                        .sheet(isPresented: $showingAddTaskSheet) {
+                            AddTaskView()
                         }
-                        
-                        Button("Create") {
-                            // In a real app, this would parse the AI prompt and create the task
-                            // For demo we'll create a simple task with the prompt as the title
-                            if !aiTaskPrompt.isEmpty {
-                                appState.taskManager.addTask(
-                                    title: aiTaskPrompt,
-                                    description: "Task created via AI",
-                                    priority: .medium,
-                                    dueDate: Calendar.current.date(byAdding: .day, value: 7, to: Date()),
-                                    assignedTo: appState.userManager.currentUser?.id,
-                                    createdBy: appState.userManager.currentUser?.id ?? ""
-                                )
+                        .alert("AI Task Creation", isPresented: $showingAITaskPrompt) {
+                            TextField("Describe your task...", text: $aiTaskPrompt)
+                            
+                            Button("Cancel", role: .cancel) {
                                 aiTaskPrompt = ""
                             }
+                            
+                            Button("Create", action: createAITask)
+                                .disabled(aiTaskPrompt.isEmpty || isCreatingTask)
                         }
-                    }
+                        .onReceive(NotificationCenter.default.publisher(for: UIApplication.didBecomeActiveNotification)) { _ in
+                            checkForTaskErrors()
+                        }
+                        .onAppear {
+                            checkForTaskErrors()
+                        }
+                }
+            }
+        }
+    }
+    
+    private func checkForTaskErrors() {
+        if let taskError = appState.taskManager.taskError {
+            if let processedError = DetailedErrorProcessor.convertTaskError(taskError) {
+                errorMessage = processedError.message
+                showError = true
+                isCreatingTask = false
+                
+                // Clear error after processing
+                appState.taskManager.taskError = nil
             }
         }
     }
@@ -161,9 +194,7 @@ struct DashboardView: View {
                     }
                     
                     if appState.taskManager.tasks.count > 3 {
-                        Button(action: {
-                            // Would navigate to a full task list
-                        }) {
+                        NavigationLink(destination: TaskListView()) {
                             Text("View All Tasks")
                                 .font(.system(size: 14, weight: .medium))
                                 .foregroundColor(.appTextSecondary)
@@ -247,27 +278,39 @@ struct DashboardView: View {
                 .padding(.horizontal)
         }
     }
-}
-
-// MARK: - Section Header
-struct SectionHeaderView: View {
-    var title: String
     
-    var body: some View {
-        HStack {
-            Text(title)
-                .font(.system(size: 20, weight: .bold))
-                .foregroundColor(.appTextPrimary)
-            
-            Spacer()
-            
-            Button(action: {}) {
-                Text("See All")
-                    .font(.system(size: 14))
-                    .foregroundColor(.appTextSecondary)
-            }
+    private func createAITask() {
+        guard !aiTaskPrompt.isEmpty else {
+            errorMessage = "Please enter a task description"
+            showError = true
+            return
         }
-        .padding(.horizontal)
+        
+        isCreatingTask = true
+        
+        // Here we would typically make an API call to an AI service
+        // For now, we'll simulate a delay and create a simple task
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+            // Create a task with the AI prompt as description
+            let success = appState.taskManager.addTask(
+                title: "AI Generated Task",
+                description: aiTaskPrompt,
+                priority: .medium,
+                dueDate: Date().addingTimeInterval(24 * 60 * 60), // Tomorrow
+                assignedTo: appState.userManager.currentUser?.id,
+                createdBy: appState.userManager.currentUser?.id ?? ""
+            )
+            
+            if success {
+                isCreatingTask = false
+                aiTaskPrompt = ""
+            } else if appState.taskManager.taskError == nil {
+                isCreatingTask = false
+                errorMessage = "Failed to create AI task. Please try again."
+                showError = true
+            }
+            // Error handling for specific errors is done through the onChange observer
+        }
     }
 }
 
@@ -355,50 +398,79 @@ struct TaskRowView: View {
     var task: Task
     
     var body: some View {
-        HStack(alignment: .top, spacing: 12) {
-            Button(action: {
-                appState.taskManager.toggleTaskCompletion(taskId: task.id)
-            }) {
-                Image(systemName: task.isCompleted ? "checkmark.circle.fill" : "circle")
-                    .foregroundColor(task.isCompleted ? .green : .appTextSecondary)
-                    .font(.title3)
-            }
-            
-            VStack(alignment: .leading, spacing: 4) {
-                Text(task.title)
-                    .font(.system(size: 16, weight: .medium))
-                    .strikethrough(task.isCompleted)
-                    .foregroundColor(task.isCompleted ? .appTextSecondary : .appTextPrimary)
-                
-                Text(task.description)
-                    .font(.system(size: 14))
-                    .foregroundColor(.appTextSecondary)
-                    .lineLimit(2)
-                
-                if let dueDate = task.dueDate {
-                    HStack {
-                        Image(systemName: "calendar")
-                            .font(.caption)
-                        
-                        Text(dueDate.formatted(date: .abbreviated, time: .omitted))
-                            .font(.caption)
-                        
-                        if task.isOverdue {
-                            Text("Overdue")
-                                .font(.caption)
-                                .foregroundColor(.red)
-                        }
-                    }
-                    .foregroundColor(.appTextSecondary)
-                    .padding(.top, 4)
+        NavigationLink(destination: EditTaskView(task: task)) {
+            HStack(alignment: .top, spacing: 12) {
+                Button(action: {
+                    appState.taskManager.toggleTaskCompletion(taskId: task.id)
+                }) {
+                    Image(systemName: task.isCompleted ? "checkmark.circle.fill" : "circle")
+                        .foregroundColor(task.isCompleted ? .green : .appTextSecondary)
+                        .font(.title3)
                 }
+                
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(task.title)
+                        .font(.system(size: 16, weight: .medium))
+                        .strikethrough(task.isCompleted)
+                        .foregroundColor(task.isCompleted ? .appTextSecondary : .appTextPrimary)
+                    
+                    Text(task.description)
+                        .font(.system(size: 14))
+                        .foregroundColor(.appTextSecondary)
+                        .lineLimit(2)
+                    
+                    if let dueDate = task.dueDate {
+                        HStack {
+                            Image(systemName: "calendar")
+                                .font(.caption)
+                            
+                            Text(dueDate.formatted(date: .abbreviated, time: .omitted))
+                                .font(.caption)
+                            
+                            if task.isOverdue {
+                                Text("Overdue")
+                                    .font(.caption)
+                                    .foregroundColor(.red)
+                            }
+                        }
+                        .foregroundColor(.appTextSecondary)
+                        .padding(.top, 4)
+                    }
+                }
+                
+                Spacer()
+                
+                PriorityBadge(priority: task.priority)
             }
-            
-            Spacer()
-            
-            PriorityBadge(priority: task.priority)
+            .contentShape(Rectangle())
         }
-        .contentShape(Rectangle())
+        .buttonStyle(PlainButtonStyle())
+    }
+}
+
+// MARK: - Priority Badge
+struct PriorityBadge: View {
+    var priority: TaskPriority
+    
+    var body: some View {
+        Text(priority.displayName)
+            .font(.system(size: 12, weight: .medium))
+            .padding(.horizontal, 8)
+            .padding(.vertical, 4)
+            .background(priorityColor.opacity(0.2))
+            .foregroundColor(priorityColor)
+            .cornerRadius(12)
+    }
+    
+    var priorityColor: Color {
+        switch priority {
+        case .low:
+            return .blue
+        case .medium:
+            return .orange
+        case .high:
+            return .red
+        }
     }
 }
 
@@ -575,98 +647,6 @@ struct NewsItemView: View {
             }
         }
         .padding(.vertical, 4)
-    }
-}
-
-// MARK: - Add Task View
-struct AddTaskView: View {
-    @Environment(\.dismiss) var dismiss
-    @EnvironmentObject var appState: AppState
-    
-    @State private var title = ""
-    @State private var description = ""
-    @State private var priority: TaskPriority = .medium
-    @State private var dueDate = Date.now.addingTimeInterval(60*60*24*7) // One week ahead
-    
-    var body: some View {
-        NavigationStack {
-            ZStack {
-                Color.appBackground
-                    .ignoresSafeArea()
-                
-                taskFormContent
-                    .navigationTitle("Add Task")
-                    .navigationBarTitleDisplayMode(.inline)
-                    .foregroundColor(.appTextPrimary)
-                    .toolbarBackground(Color.appBackground, for: .navigationBar)
-                    .toolbarBackground(.visible, for: .navigationBar)
-                    .toolbarColorScheme(.dark, for: .navigationBar)
-                    .toolbar {
-                        ToolbarItem(placement: .navigationBarLeading) {
-                            cancelButton
-                        }
-                        
-                        ToolbarItem(placement: .navigationBarTrailing) {
-                            saveButton
-                        }
-                    }
-            }
-        }
-    }
-    
-    private var taskFormContent: some View {
-        VStack {
-            Form {
-                Section(header: Text("Task Details").foregroundColor(.appTextPrimary)) {
-                    TextField("Title", text: $title)
-                        .foregroundColor(.appTextPrimary)
-                    
-                    TextField("Description", text: $description, axis: .vertical)
-                        .foregroundColor(.appTextPrimary)
-                    
-                    Picker("Priority", selection: $priority) {
-                        ForEach(TaskPriority.allCases) { priority in
-                            Text(priority.displayName)
-                        }
-                    }
-                    .foregroundColor(.appTextPrimary)
-                    
-                    DatePicker("Due Date", selection: $dueDate, displayedComponents: [.date])
-                        .foregroundColor(.appTextPrimary)
-                }
-            }
-            .scrollContentBackground(.hidden)
-        }
-    }
-    
-    private var cancelButton: some View {
-        Button("Cancel") {
-            dismiss()
-        }
-        .foregroundColor(.appTextSecondary)
-    }
-    
-    private var saveButton: some View {
-        Button("Save") {
-            saveTask()
-            dismiss()
-        }
-        .bold()
-        .foregroundColor(.appPrimary)
-        .disabled(title.isEmpty)
-    }
-    
-    private func saveTask() {
-        guard !title.isEmpty else { return }
-        
-        appState.taskManager.addTask(
-            title: title,
-            description: description,
-            priority: priority,
-            dueDate: dueDate,
-            assignedTo: appState.userManager.currentUser?.id,
-            createdBy: appState.userManager.currentUser?.id ?? ""
-        )
     }
 }
 

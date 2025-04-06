@@ -78,38 +78,6 @@ struct CaptionText: View {
 }
 
 // MARK: - Button Styles
-struct PrimaryButtonStyle: ButtonStyle {
-    func makeBody(configuration: Configuration) -> some View {
-        configuration.label
-            .font(.headline)
-            .foregroundColor(.white)
-            .padding(.vertical, 12)
-            .padding(.horizontal, 24)
-            .background(
-                RoundedRectangle(cornerRadius: 24)
-                    .fill(Color.appPrimary)
-                    .opacity(configuration.isPressed ? 0.8 : 1.0)
-            )
-            .scaleEffect(configuration.isPressed ? 0.98 : 1.0)
-    }
-}
-
-struct SecondaryButtonStyle: ButtonStyle {
-    func makeBody(configuration: Configuration) -> some View {
-        configuration.label
-            .font(.headline)
-            .foregroundColor(.appTextPrimary)
-            .padding(.vertical, 12)
-            .padding(.horizontal, 24)
-            .background(
-                RoundedRectangle(cornerRadius: 24)
-                    .fill(Color.appElevatedBackground)
-                    .opacity(configuration.isPressed ? 0.8 : 1.0)
-            )
-            .scaleEffect(configuration.isPressed ? 0.98 : 1.0)
-    }
-}
-
 struct OutlineButtonStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
@@ -266,56 +234,354 @@ extension View {
     }
 }
 
-// MARK: - Empty State
-struct EmptyStateView: View {
-    var icon: String
-    var title: String
-    var message: String
+// MARK: - Error Display
+enum ErrorSeverity {
+    case info
+    case warning
+    case error
     
-    var body: some View {
-        VStack(spacing: 16) {
-            Image(systemName: icon)
-                .font(.system(size: 70))
-                .foregroundColor(.appTextSecondary)
-            
-            Text(title)
-                .font(.title3)
-                .fontWeight(.semibold)
-                .foregroundColor(.appTextPrimary)
-            
-            Text(message)
-                .font(.body)
-                .foregroundColor(.appTextSecondary)
-                .multilineTextAlignment(.center)
+    var icon: String {
+        switch self {
+        case .info:
+            return "info.circle.fill"
+        case .warning:
+            return "exclamationmark.triangle.fill"
+        case .error:
+            return "xmark.circle.fill"
         }
-        .padding()
-        .frame(maxWidth: .infinity)
+    }
+    
+    var color: Color {
+        switch self {
+        case .info:
+            return Color.blue
+        case .warning:
+            return Color.orange
+        case .error:
+            return Color.appError
+        }
     }
 }
 
-// MARK: - Priority Badge
-struct PriorityBadge: View {
-    var priority: TaskPriority
+struct ErrorDisplayView: View {
+    var message: String
+    var severity: ErrorSeverity
+    var isPresented: Binding<Bool>
+    var action: (() -> Void)? = nil
     
     var body: some View {
-        Text(priority.displayName)
-            .font(.caption)
-            .fontWeight(.semibold)
-            .padding(.horizontal, 8)
-            .padding(.vertical, 4)
-            .background(priorityColor)
-            .foregroundColor(.white)
-            .cornerRadius(4)
+        if isPresented.wrappedValue {
+            VStack {
+                HStack(alignment: .top, spacing: 12) {
+                    Image(systemName: severity.icon)
+                        .font(.system(size: 16))
+                        .foregroundColor(severity.color)
+                    
+                    Text(message)
+                        .font(.system(size: 14))
+                        .foregroundColor(.appTextPrimary)
+                        .multilineTextAlignment(.leading)
+                    
+                    Spacer()
+                    
+                    Button(action: {
+                        withAnimation {
+                            isPresented.wrappedValue = false
+                        }
+                    }) {
+                        Image(systemName: "xmark")
+                            .font(.system(size: 14))
+                            .foregroundColor(.appTextSecondary)
+                    }
+                }
+                .padding()
+                .background(Color.appElevatedBackground)
+                .cornerRadius(12)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 12)
+                        .stroke(severity.color.opacity(0.3), lineWidth: 1)
+                )
+                .shadow(color: Color.black.opacity(0.1), radius: 4, x: 0, y: 2)
+                .onTapGesture {
+                    if let action = action {
+                        action()
+                    }
+                }
+            }
+            .transition(.move(edge: .top).combined(with: .opacity))
+            .padding(.horizontal)
+            .animation(.easeInOut, value: isPresented.wrappedValue)
+            .zIndex(100) // Ensure it appears above other content
+        }
+    }
+}
+
+// Extension to easily add error display to any view
+extension View {
+    func withErrorDisplay(
+        message: String,
+        severity: ErrorSeverity = .error,
+        isPresented: Binding<Bool>,
+        action: (() -> Void)? = nil
+    ) -> some View {
+        ZStack(alignment: .top) {
+            self
+            
+            ErrorDisplayView(
+                message: message,
+                severity: severity,
+                isPresented: isPresented,
+                action: action
+            )
+            .padding(.top, 8)
+        }
+    }
+}
+
+// MARK: - Error Helper
+struct ErrorHelper {
+    // Convert domain errors to human-friendly messages and determine severity
+    static func processAuthError(_ error: AuthError?) -> (message: String, severity: ErrorSeverity)? {
+        guard let error = error else { return nil }
+        
+        let severity: ErrorSeverity = {
+            switch error {
+            case .networkError:
+                return .warning
+            case .signInFailed, .signUpFailed, .signOutFailed, .userNotFound, 
+                 .invalidCredentials, .unknown:
+                return .error
+            }
+        }()
+        
+        return (message: error.localizedDescription, severity: severity)
     }
     
-    private var priorityColor: Color {
-        switch priority {
-        case .low:
-            return .blue
-        case .medium:
-            return .orange
-        case .high:
-            return .red
+    static func processUserError(_ error: UserError?) -> (message: String, severity: ErrorSeverity)? {
+        guard let error = error else { return nil }
+        
+        let severity: ErrorSeverity = {
+            switch error {
+            case .userNotFound, .invalidUserData, .duplicateUser, .missingRequiredFields:
+                return .warning
+            case .failedToSave, .failedToLoad, .failedToUpdate, .failedToDelete, 
+                 .unauthorized, .coreDataError:
+                return .error
+            }
+        }()
+        
+        return (message: error.localizedDescription, severity: severity)
+    }
+    
+    static func processSessionError(_ error: SessionError?) -> (message: String, severity: ErrorSeverity)? {
+        guard let error = error else { return nil }
+        
+        let severity: ErrorSeverity = {
+            switch error {
+            case .pastDateBooking, .invalidDuration, .studioUnavailable, 
+                 .schedulingConflict, .invalidSessionData:
+                return .warning
+            case .sessionNotFound, .failedToSave, .failedToLoad, .failedToUpdate, 
+                 .failedToDelete, .coreDataError:
+                return .error
+            }
+        }()
+        
+        return (message: error.localizedDescription, severity: severity)
+    }
+    
+    static func processSongError(_ error: SongError?) -> (message: String, severity: ErrorSeverity)? {
+        guard let error = error else { return nil }
+        
+        let severity: ErrorSeverity = {
+            switch error {
+            case .invalidFileFormat, .fileNotFound, .metadataError:
+                return .warning
+            case .songNotFound, .failedToSave, .failedToLoad, .failedToUpdate, 
+                 .failedToDelete, .fileError, .playbackError, .coreDataError:
+                return .error
+            }
+        }()
+        
+        return (message: error.localizedDescription, severity: severity)
+    }
+    
+    static func processTaskError(_ error: TaskError?) -> (message: String, severity: ErrorSeverity)? {
+        guard let error = error else { return nil }
+        
+        let severity: ErrorSeverity = {
+            switch error {
+            case .invalidTaskData, .priorityConflict, .incompleteTask, .overdueTask:
+                return .warning
+            case .taskNotFound, .failedToSave, .failedToLoad, .failedToUpdate, 
+                 .failedToDelete, .unauthorizedAccess, .coreDataError, .aiGenerationFailed:
+                return .error
+            }
+        }()
+        
+        return (message: error.localizedDescription, severity: severity)
+    }
+    
+    // Generic method to auto-dismiss error after a delay
+    static func autoDismissError(isPresented: Binding<Bool>, delay: TimeInterval = 5.0) {
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
+            withAnimation {
+                isPresented.wrappedValue = false
+            }
         }
+    }
+}
+
+// MARK: - App Error View
+struct AppErrorView: View {
+    @EnvironmentObject var appState: AppState
+    @State private var showError = false
+    @State private var errorMessage = ""
+    @State private var errorSeverity: ErrorSeverity = .error
+    
+    var body: some View {
+        Group {
+            // This is an empty view that just observes errors
+        }
+        .onChange(of: appState.authService.authError) { _, newError in
+            if let error = newError, let processedError = ErrorHelper.processAuthError(error) {
+                showError(message: processedError.message, severity: processedError.severity)
+            }
+        }
+        .onChange(of: appState.userManager.authError) { _, newError in
+            if let error = newError, let processedError = ErrorHelper.processUserError(error) {
+                showError(message: processedError.message, severity: processedError.severity)
+            }
+        }
+        .onChange(of: appState.sessionManager.sessionError) { _, newError in
+            if let error = newError, let processedError = ErrorHelper.processSessionError(error) {
+                showError(message: processedError.message, severity: processedError.severity)
+            }
+        }
+        .onChange(of: appState.songManager.songError) { _, newError in
+            if let error = newError, let processedError = ErrorHelper.processSongError(error) {
+                showError(message: processedError.message, severity: processedError.severity)
+            }
+        }
+        .onChange(of: appState.taskManager.taskError) { _, newError in
+            if let error = newError, let processedError = ErrorHelper.processTaskError(error) {
+                showError(message: processedError.message, severity: processedError.severity)
+            }
+        }
+        .withErrorDisplay(
+            message: errorMessage,
+            severity: errorSeverity,
+            isPresented: $showError
+        )
+    }
+    
+    private func showError(message: String, severity: ErrorSeverity) {
+        errorMessage = message
+        errorSeverity = severity
+        
+        withAnimation {
+            showError = true
+        }
+        
+        // Auto dismiss after a delay
+        ErrorHelper.autoDismissError(isPresented: $showError)
+    }
+}
+
+// Extension to easily add app-wide error handling to any view
+extension View {
+    func withAppErrorHandling() -> some View {
+        ZStack(alignment: .top) {
+            self
+            
+            AppErrorView()
+        }
+    }
+}
+
+// MARK: - Loading View
+enum LoadingSize {
+    case small
+    case medium
+    case large
+    
+    var dimensions: CGFloat {
+        switch self {
+        case .small: return 40
+        case .medium: return 80
+        case .large: return 120
+        }
+    }
+    
+    var strokeWidth: CGFloat {
+        switch self {
+        case .small: return 2
+        case .medium: return 3
+        case .large: return 4
+        }
+    }
+}
+
+struct LoadingView: View {
+    var size: LoadingSize = .medium
+    var message: String? = nil
+    var tint: Color = .appPrimary
+    
+    var body: some View {
+        VStack(spacing: 16) {
+            ProgressView()
+                .progressViewStyle(CircularProgressViewStyle(tint: tint))
+                .scaleEffect(size == .small ? 1.0 : (size == .medium ? 1.5 : 2.0))
+                .frame(width: size.dimensions, height: size.dimensions)
+            
+            if let message = message {
+                Text(message)
+                    .font(.callout)
+                    .foregroundColor(.appTextPrimary)
+                    .multilineTextAlignment(.center)
+            }
+        }
+        .padding()
+        .background(Color.appElevatedBackground.opacity(0.8))
+        .cornerRadius(12)
+    }
+}
+
+// Overlay modifier for showing loading state
+extension View {
+    func withLoading(isLoading: Bool, message: String? = nil) -> some View {
+        ZStack {
+            self
+                .disabled(isLoading)
+                .blur(radius: isLoading ? 1 : 0)
+            
+            if isLoading {
+                Color.black.opacity(0.2)
+                    .ignoresSafeArea()
+                
+                LoadingView(message: message)
+                    .transition(.opacity)
+            }
+        }
+        .animation(.easeInOut(duration: 0.2), value: isLoading)
+    }
+}
+
+// Convenience modifier for form validation
+extension View {
+    func withFormValidation(
+        showValidation: Bool,
+        validationMessage: String? = nil
+    ) -> some View {
+        self
+            .overlay(
+                RoundedRectangle(cornerRadius: 8)
+                    .stroke(
+                        showValidation ? 
+                            (validationMessage == nil ? Color.appSuccess : Color.appError) : 
+                            Color.clear,
+                        lineWidth: 1
+                    )
+            )
     }
 } 
