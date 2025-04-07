@@ -101,6 +101,7 @@ extension Artist: CoreDataConvertible {
 
 enum AudioFormat: String, Codable, CaseIterable {
     case wav = "WAV"
+    case aiff = "AIFF"
     case aac = "AAC"
     case amr = "AMR"
     case mp3 = "MP3"
@@ -108,13 +109,27 @@ enum AudioFormat: String, Codable, CaseIterable {
     case ogg = "OGG"
     case opus = "OPUS"
     case m4a = "M4A"
+    case flac = "FLAC"
     
     var fileExtension: String {
-        return self.rawValue.lowercased()
+        switch self {
+        case .aiff:
+            return "aif"
+        default:
+            return self.rawValue.lowercased()
+        }
     }
     
     static func fromFileExtension(_ extension: String) -> AudioFormat? {
-        return AudioFormat.allCases.first { $0.fileExtension == `extension`.lowercased() }
+        let lowercasedExt = `extension`.lowercased()
+        
+        // Handle special cases
+        if lowercasedExt == "aif" || lowercasedExt == "aiff" {
+            return .aiff
+        }
+        
+        // Default case
+        return AudioFormat.allCases.first { $0.fileExtension == lowercasedExt }
     }
 }
 
