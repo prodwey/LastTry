@@ -90,7 +90,8 @@ class AuthenticationService: ObservableObject {
             return .success(authResult.user)
         } catch {
             let authError = handleFirebaseError(error)
-            DispatchQueue.main.async {
+            // Avoid capturing self in @Sendable closure
+            await MainActor.run {
                 self.authError = authError
             }
             return .failure(authError)
@@ -104,8 +105,10 @@ class AuthenticationService: ObservableObject {
             return .success(authResult.user)
         } catch {
             let authError = handleFirebaseError(error)
-            DispatchQueue.main.async {
-                self.authError = authError
+            // Avoid capturing self in @Sendable closure
+            let authServiceError = authError
+            await MainActor.run {
+                self.authError = authServiceError
             }
             return .failure(authError)
         }
@@ -118,9 +121,8 @@ class AuthenticationService: ObservableObject {
             return .success(())
         } catch {
             let authError = AuthError.signOutFailed(error.localizedDescription)
-            DispatchQueue.main.async {
-                self.authError = authError
-            }
+            // No need for MainActor here since this is not async
+            self.authError = authError
             return .failure(authError)
         }
     }
@@ -139,7 +141,7 @@ class AuthenticationService: ObservableObject {
             return .success(())
         } catch {
             let authError = handleFirebaseError(error)
-            DispatchQueue.main.async {
+            await MainActor.run {
                 self.authError = authError
             }
             return .failure(authError)
@@ -153,12 +155,14 @@ class AuthenticationService: ObservableObject {
         }
         
         do {
-            try await user.updateEmail(to: newEmail)
+            try await user.sendEmailVerification(beforeUpdatingEmail: newEmail)
             return .success(())
         } catch {
             let authError = handleFirebaseError(error)
-            DispatchQueue.main.async {
-                self.authError = authError
+            // Avoid capturing self in @Sendable closure
+            let authServiceError = authError
+            await MainActor.run {
+                self.authError = authServiceError
             }
             return .failure(authError)
         }
@@ -179,7 +183,7 @@ class AuthenticationService: ObservableObject {
             return .success(())
         } catch {
             let authError = handleFirebaseError(error)
-            DispatchQueue.main.async {
+            await MainActor.run {
                 self.authError = authError
             }
             return .failure(authError)
@@ -193,7 +197,7 @@ class AuthenticationService: ObservableObject {
             return .success(())
         } catch {
             let authError = handleFirebaseError(error)
-            DispatchQueue.main.async {
+            await MainActor.run {
                 self.authError = authError
             }
             return .failure(authError)
@@ -211,6 +215,7 @@ class AuthenticationService: ObservableObject {
         authStateHandle = Auth.auth().addStateDidChangeListener { [weak self] (_, user) in
             guard let self = self else { return }
             
+            // Use dispatch to main queue instead of Task with MainActor to avoid compiler issues
             DispatchQueue.main.async {
                 self.currentUser = user
                 self.isAuthenticated = user != nil
@@ -220,33 +225,38 @@ class AuthenticationService: ObservableObject {
     }
     
     private func handleFirebaseError(_ error: Error) -> AuthError {
-        if let errorCode = AuthErrorCode(rawValue: (error as NSError).code) {
-            switch errorCode {
-            case .userNotFound:
-                return .userNotFound
-            case .wrongPassword:
-                return .invalidCredentials
-            case .invalidEmail:
-                return .invalidCredentials
-            case .networkError:
-                return .networkError
-            case .emailAlreadyInUse:
-                return .signUpFailed("Email is already in use")
-            case .weakPassword:
-                return .signUpFailed("Password is too weak")
-            default:
-                return .unknown
+        // Get the NSError version of the error
+        let nsError = error as NSError
+        
+        // Check for specific error codes from Firebase Auth
+        if nsError.domain == AuthErrorDomain {
+            // Use AuthErrorCode directly, not AuthErrorCode.Code
+            if let errorCode = AuthErrorCode(rawValue: nsError.code) {
+                switch errorCode {
+                case .userNotFound:
+                    return .userNotFound
+                case .wrongPassword:
+                    return .invalidCredentials
+                case .invalidEmail:
+                    return .invalidCredentials
+                case .networkError:
+                    return .networkError
+                case .emailAlreadyInUse:
+                    return .signUpFailed("Email is already in use")
+                case .weakPassword:
+                    return .signUpFailed("Password is too weak")
+                default:
+                    break
+                }
             }
         }
         
-        // If we can't match with a specific Firebase error, return a generic one with the message
-        if let nsError = error as? NSError {
-            if nsError.domain.contains("Firebase") {
-                if nsError.localizedDescription.contains("sign in") {
-                    return .signInFailed(nsError.localizedDescription)
-                } else if nsError.localizedDescription.contains("create user") {
-                    return .signUpFailed(nsError.localizedDescription)
-                }
+        // For other errors, provide a generic message based on the description
+        if nsError.domain.contains("Firebase") {
+            if nsError.localizedDescription.contains("sign in") {
+                return .signInFailed(nsError.localizedDescription)
+            } else if nsError.localizedDescription.contains("create user") {
+                return .signUpFailed(nsError.localizedDescription)
             }
         }
         

@@ -6,6 +6,8 @@ struct MySongsView: View {
     @State private var searchText = ""
     @State private var selectedSong: Song? = nil
     @State private var isShowingFullPlayer = false
+    @State private var showError = false
+    @State private var errorMessage = ""
     
     private var filteredSongs: [Song] {
         if searchText.isEmpty {
@@ -82,11 +84,18 @@ struct MySongsView: View {
             return
         }
         
-        // Otherwise, start playing the song
+        // Otherwise, start playing the song using real audio service
         appState.playSong(song)
         
-        // In a real app, we'd load and play the audio file here
-        // For now, we'll just update the app state
+        // Check for errors
+        if let error = appState.audioError {
+            errorMessage = error.localizedDescription
+            showError = true
+            return
+        }
+        
+        // If playback started successfully, show the full player
+        isShowingFullPlayer = true
     }
 }
 
@@ -171,6 +180,9 @@ struct FullPlayerView: View {
     
     var song: Song
     @State private var isScrubbing = false
+    @State private var scrubbingValue: Double = 0
+    @State private var showError = false
+    @State private var errorMessage = ""
     
     var body: some View {
         ZStack {
@@ -242,17 +254,30 @@ struct FullPlayerView: View {
                 
                 // Playback progress
                 VStack(spacing: 8) {
+                    // Use scrubbing state to avoid constant updates while dragging
                     Slider(
                         value: Binding(
-                            get: { appState.currentPlaybackPosition },
-                            set: { 
-                                appState.currentPlaybackPosition = $0
-                                // In a real app, this would seek the audio
+                            get: { 
+                                isScrubbing ? scrubbingValue : appState.currentPlaybackPosition 
+                            },
+                            set: { newValue in
+                                scrubbingValue = newValue
+                                isScrubbing = true
                             }
                         ),
-                        in: 0...(song.duration ?? 180)
+                        in: 0...(appState.audioService.duration > 0 ? appState.audioService.duration : (song.duration ?? 180))
                     )
                     .accentColor(.appPrimary)
+                    .simultaneousGesture(
+                        DragGesture(minimumDistance: 0)
+                            .onEnded { _ in
+                                // When user finishes dragging, apply the seek
+                                if isScrubbing {
+                                    appState.seekToPosition(scrubbingValue)
+                                    isScrubbing = false
+                                }
+                            }
+                    )
                     
                     HStack {
                         Text(formatTime(appState.currentPlaybackPosition))
@@ -261,7 +286,10 @@ struct FullPlayerView: View {
                         
                         Spacer()
                         
-                        Text(formatTime(song.duration ?? 180))
+                        let duration = appState.audioService.duration > 0 ? 
+                                       appState.audioService.duration : 
+                                       (song.duration ?? 180)
+                        Text(formatTime(duration))
                             .font(.system(size: 12))
                             .foregroundColor(.appTextSecondary)
                     }
@@ -276,7 +304,11 @@ struct FullPlayerView: View {
                             .foregroundColor(.appTextSecondary)
                     }
                     
-                    Button(action: {}) {
+                    Button(action: {
+                        // Seek 10 seconds backward
+                        let newPosition = max(0, appState.currentPlaybackPosition - 10)
+                        appState.seekToPosition(newPosition)
+                    }) {
                         Image(systemName: "backward.fill")
                             .font(.system(size: 36))
                             .foregroundColor(.appTextPrimary)
@@ -294,7 +326,14 @@ struct FullPlayerView: View {
                             .foregroundColor(.appTextPrimary)
                     }
                     
-                    Button(action: {}) {
+                    Button(action: {
+                        // Seek 10 seconds forward
+                        let maxDuration = appState.audioService.duration > 0 ? 
+                                        appState.audioService.duration : 
+                                        (song.duration ?? 180)
+                        let newPosition = min(maxDuration, appState.currentPlaybackPosition + 10)
+                        appState.seekToPosition(newPosition)
+                    }) {
                         Image(systemName: "forward.fill")
                             .font(.system(size: 36))
                             .foregroundColor(.appTextPrimary)
@@ -307,44 +346,45 @@ struct FullPlayerView: View {
                     }
                 }
                 
-                // Additional controls
-                HStack(spacing: 40) {
-                    Button(action: {}) {
-                        Image(systemName: "heart")
-                            .font(.system(size: 24))
-                            .foregroundColor(.appTextSecondary)
-                    }
-                    
-                    Button(action: {}) {
-                        Image(systemName: "text.bubble")
-                            .font(.system(size: 24))
-                            .foregroundColor(.appTextSecondary)
-                    }
-                    
-                    Button(action: {}) {
-                        Image(systemName: "arrow.down.circle")
-                            .font(.system(size: 24))
-                            .foregroundColor(.appTextSecondary)
-                    }
-                    
-                    Button(action: {}) {
-                        Image(systemName: "list.bullet")
-                            .font(.system(size: 24))
-                            .foregroundColor(.appTextSecondary)
-                    }
-                }
-                .padding(.top, 24)
-                .padding(.bottom, 32)
+                Spacer()
             }
-            .padding(.horizontal)
+            .padding(.bottom, 24)
+        }
+        .onAppear {
+            // Initialize scrubbing value with current position when view appears
+            scrubbingValue = appState.currentPlaybackPosition
+            
+            // Check for errors from audio playback
+            if let error = appState.audioError {
+                errorMessage = error.localizedDescription
+                showError = true
+            }
+        }
+        // Instead of using onChange, use a timer to check for errors
+        .onReceive(Timer.publish(every: 0.5, on: .main, in: .common).autoconnect()) { _ in
+            // This periodically checks for errors instead of using onChange
+            if let error = appState.audioError {
+                // Only show if we have a new error message
+                if errorMessage != error.localizedDescription {
+                    errorMessage = error.localizedDescription
+                    showError = true
+                }
+            }
+        }
+        .alert(isPresented: $showError) {
+            Alert(
+                title: Text("Playback Error"),
+                message: Text(errorMessage),
+                dismissButton: .default(Text("OK"))
+            )
         }
     }
 }
 
-// Helper function to format time
-func formatTime(_ time: TimeInterval) -> String {
-    let minutes = Int(time) / 60
-    let seconds = Int(time) % 60
+// Helper method to format time
+func formatTime(_ timeInSeconds: TimeInterval) -> String {
+    let minutes = Int(timeInSeconds) / 60
+    let seconds = Int(timeInSeconds) % 60
     return String(format: "%d:%02d", minutes, seconds)
 }
 

@@ -151,12 +151,16 @@ class SessionDataManager: CoreDataManaging {
     }
     
     func createModel(from entity: SessionEntity) -> Session {
-        Session(
+        // Get the arrays directly, avoiding conditional downcasts
+        let producers = (entity.additionalProducers as? [String]) ?? []
+        let singers = (entity.singers as? [String]) ?? []
+        
+        return Session(
             id: entity.id ?? UUID().uuidString,
             studio: Studio(rawValue: entity.studio ?? "Studio A") ?? .studioA,
             mainProducer: entity.mainProducer ?? "",
-            additionalProducers: entity.additionalProducers as? [String] ?? [],
-            singers: entity.singers as? [String] ?? [],
+            additionalProducers: producers,
+            singers: singers,
             date: entity.date ?? Date(),
             duration: entity.duration,
             songs: nil  // Songs would typically be loaded separately or through relationships

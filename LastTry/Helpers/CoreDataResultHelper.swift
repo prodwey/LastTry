@@ -117,18 +117,21 @@ extension CoreDataManaging {
         in context: NSManagedObjectContext
     ) -> Result<Void, CoreDataError> {
         switch fetchById(id: id, idKey: idKey, in: context) {
-        case .success(let entity):
-            guard let entity = entity else {
-                return .failure(.entityNotFound)
-            }
-            
-            context.delete(entity)
-            
-            do {
-                try context.save()
+        case .success(let fetchedEntity):
+            // Check if the entity exists before trying to delete it
+            if let entityToDelete = fetchedEntity {
+                context.delete(entityToDelete)
+                
+                do {
+                    try context.save()
+                    return .success(())
+                } catch {
+                    return .failure(.deleteFailed(error.localizedDescription))
+                }
+            } else {
+                // Entity not found is not necessarily an error when deleting
+                // It might have been deleted already
                 return .success(())
-            } catch {
-                return .failure(.deleteFailed(error.localizedDescription))
             }
         case .failure(let error):
             return .failure(error)

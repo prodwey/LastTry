@@ -1,0 +1,311 @@
+import Foundation
+import AVFoundation
+import Combine
+
+enum AudioError: Error, LocalizedError {
+    case fileNotFound
+    case invalidFileFormat
+    case failedToLoad(String)
+    case playbackError(String)
+    
+    var errorDescription: String? {
+        switch self {
+        case .fileNotFound:
+            return "Audio file not found"
+        case .invalidFileFormat:
+            return "Invalid audio file format"
+        case .failedToLoad(let message):
+            return "Failed to load audio: \(message)"
+        case .playbackError(let message):
+            return "Playback error: \(message)"
+        }
+    }
+}
+
+class AudioService: NSObject, ObservableObject {
+    // Public properties that the UI can observe
+    @Published var isPlaying: Bool = false
+    @Published var currentTime: TimeInterval = 0
+    @Published var duration: TimeInterval = 0
+    @Published var currentSong: Song? = nil
+    
+    // Audio player and session
+    private var player: AVPlayer?
+    private var playerItem: AVPlayerItem?
+    private var timeObserver: Any?
+    private var statusObserver: NSKeyValueObservation?
+    private var itemEndObserver: NSObjectProtocol?
+    
+    // Combine subscribers
+    private var cancellables = Set<AnyCancellable>()
+    
+    override init() {
+        super.init()
+        setupAudioSession()
+        setupNotifications()
+    }
+    
+    deinit {
+        removePlayerObservers()
+    }
+    
+    // MARK: - Public Methods
+    
+    /// Loads and starts playing a song
+    func playSong(_ song: Song) throws {
+        guard let fileURL = song.fileURL else {
+            throw AudioError.fileNotFound
+        }
+        
+        // First, stop any current playback
+        stopPlayback()
+        
+        // Create a new player item
+        let playerItem = AVPlayerItem(url: fileURL)
+        
+        // Create or reuse player
+        if player == nil {
+            player = AVPlayer(playerItem: playerItem)
+        } else {
+            player?.replaceCurrentItem(with: playerItem)
+        }
+        
+        self.playerItem = playerItem
+        
+        // Set up observers
+        setupPlayerObservers()
+        
+        // Start playback
+        player?.play()
+        isPlaying = true
+        currentSong = song
+        
+        // Update duration when it becomes available
+        // Get an initial value (might be inaccurate at first)
+        #if os(iOS)
+        if #available(iOS 16.0, *) {
+            // Completely separated approach to avoid conflicts with decoders
+            loadAssetDurationWithTask(playerItem.asset)
+        } else {
+            let initialDuration = playerItem.asset.duration.seconds
+            if !initialDuration.isNaN && initialDuration > 0 {
+                self.duration = initialDuration
+            }
+        }
+        #else
+        let initialDuration = playerItem.asset.duration.seconds
+        if !initialDuration.isNaN && initialDuration > 0 {
+            self.duration = initialDuration
+        }
+        #endif
+        
+        // We'll update the duration again when the item is ready to play
+        // This happens through our status observer in setupPlayerObservers()
+        // When the item status becomes .readyToPlay, we can get a more accurate duration
+    }
+    
+    /// Pauses playback
+    func pausePlayback() {
+        player?.pause()
+        isPlaying = false
+    }
+    
+    /// Resumes playback
+    func resumePlayback() {
+        player?.play()
+        isPlaying = true
+    }
+    
+    /// Stops playback completely and resets
+    func stopPlayback() {
+        player?.pause()
+        player?.seek(to: CMTime.zero)
+        isPlaying = false
+        currentTime = 0
+        currentSong = nil
+    }
+    
+    /// Seeks to a specific position
+    func seek(to timeInSeconds: TimeInterval) {
+        let time = CMTime(seconds: timeInSeconds, preferredTimescale: CMTimeScale(NSEC_PER_SEC))
+        player?.seek(to: time) { [weak self] completed in
+            if completed {
+                self?.currentTime = timeInSeconds
+            }
+        }
+    }
+    
+    // MARK: - Private Helpers
+    
+    private func setupAudioSession() {
+        do {
+            // Configure audio session for playback
+            let audioSession = AVAudioSession.sharedInstance()
+            try audioSession.setCategory(.playback, mode: .default)
+            try audioSession.setActive(true)
+        } catch {
+            print("Failed to set up audio session: \(error.localizedDescription)")
+        }
+    }
+    
+    private func setupPlayerObservers() {
+        // Remove any existing observers
+        removePlayerObservers()
+        
+        guard let player = player else { return }
+        
+        // Add periodic time observer
+        let interval = CMTime(seconds: 0.5, preferredTimescale: CMTimeScale(NSEC_PER_SEC))
+        timeObserver = player.addPeriodicTimeObserver(forInterval: interval, queue: .main) { [weak self] time in
+            self?.currentTime = time.seconds
+        }
+        
+        // Add item status observer
+        statusObserver = playerItem?.observe(\.status, options: [.new, .old]) { [weak self] item, _ in
+            if item.status == .readyToPlay {
+                // Get more accurate duration when item is ready to play
+                #if os(iOS)
+                if #available(iOS 16.0, *) {
+                    // Completely separated approach to avoid conflicts with decoders
+                    self?.loadAssetDurationWithTask(item.asset)
+                } else {
+                    let duration = item.asset.duration.seconds
+                    if !duration.isNaN && duration > 0 {
+                        self?.duration = duration
+                    }
+                }
+                #else
+                let duration = item.asset.duration.seconds
+                if !duration.isNaN && duration > 0 {
+                    self?.duration = duration
+                }
+                #endif
+            } else if item.status == .failed {
+                self?.handlePlayerError(item.error)
+            }
+        }
+        
+        // Listen for playback ended notification
+        itemEndObserver = NotificationCenter.default.addObserver(
+            forName: .AVPlayerItemDidPlayToEndTime,
+            object: playerItem,
+            queue: .main
+        ) { [weak self] _ in
+            self?.isPlaying = false
+            self?.player?.seek(to: CMTime.zero)
+            self?.currentTime = 0
+        }
+    }
+    
+    private func removePlayerObservers() {
+        if let timeObserver = timeObserver, let player = player {
+            player.removeTimeObserver(timeObserver)
+            self.timeObserver = nil
+        }
+        
+        statusObserver?.invalidate()
+        statusObserver = nil
+        
+        if let itemEndObserver = itemEndObserver {
+            NotificationCenter.default.removeObserver(itemEndObserver)
+            self.itemEndObserver = nil
+        }
+    }
+    
+    private func setupNotifications() {
+        // Handle interruptions (phone calls, Siri, etc.)
+        NotificationCenter.default.publisher(for: AVAudioSession.interruptionNotification)
+            .sink { [weak self] notification in
+                guard let info = notification.userInfo,
+                      let typeValue = info[AVAudioSessionInterruptionTypeKey] as? UInt,
+                      let type = AVAudioSession.InterruptionType(rawValue: typeValue) else {
+                    return
+                }
+                
+                switch type {
+                case .began:
+                    self?.pausePlayback()
+                case .ended:
+                    guard let optionsValue = info[AVAudioSessionInterruptionOptionKey] as? UInt else { return }
+                    let options = AVAudioSession.InterruptionOptions(rawValue: optionsValue)
+                    if options.contains(.shouldResume) {
+                        self?.resumePlayback()
+                    }
+                @unknown default:
+                    break
+                }
+            }
+            .store(in: &cancellables)
+        
+        // Handle route changes (headphones connected/disconnected)
+        NotificationCenter.default.publisher(for: AVAudioSession.routeChangeNotification)
+            .sink { [weak self] notification in
+                guard let info = notification.userInfo,
+                      let reasonValue = info[AVAudioSessionRouteChangeReasonKey] as? UInt,
+                      let reason = AVAudioSession.RouteChangeReason(rawValue: reasonValue) else {
+                    return
+                }
+                
+                // Pause playback if headphones were disconnected
+                if reason == .oldDeviceUnavailable {
+                    self?.pausePlayback()
+                }
+            }
+            .store(in: &cancellables)
+    }
+    
+    private func handlePlayerError(_ error: Error?) {
+        isPlaying = false
+        if let error = error {
+            print("Playback error: \(error.localizedDescription)")
+        }
+    }
+    
+    // Safe wrapper method that avoids any issues with Task and trailing closures
+    private func loadAssetDurationWithTask(_ asset: AVAsset) {
+        if #available(iOS 16.0, *) {
+            // Create a background queue to load the duration without using Task
+            DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+                guard let self = self else { return }
+                
+                // Manual async loading of duration property
+                let semaphore = DispatchSemaphore(value: 0)
+                var durationValue: CMTime = .zero
+                var loadError: Error? = nil
+                
+                // Start the load operation
+                let loadingOperation = asset.loadValuesAsynchronously(forKeys: ["duration"]) {
+                    // Check if duration is loadable
+                    var error: NSError? = nil
+                    let status = asset.statusOfValue(forKey: "duration", error: &error)
+                    
+                    if status == .loaded {
+                        durationValue = asset.duration
+                    } else {
+                        loadError = error
+                    }
+                    
+                    semaphore.signal()
+                }
+                
+                // Wait for operation to complete (with timeout)
+                _ = semaphore.wait(timeout: .now() + 5.0)
+                
+                // Process the results on main thread
+                if let error = loadError {
+                    print("Error loading duration: \(error.localizedDescription)")
+                } else {
+                    let seconds = CMTimeGetSeconds(durationValue)
+                    if seconds > 0 {
+                        DispatchQueue.main.async { [weak self] in
+                            self?.duration = seconds
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // Helper method is not needed with the new approach
+    // The original async function can be kept for reference but is not used
+} 

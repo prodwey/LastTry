@@ -116,6 +116,11 @@ struct MainTabView: View {
                                 .lineLimit(1)
                         }
                     }
+                    .onTapGesture {
+                        // Navigate to full player
+                        appState.tabSelection = 2 // Switch to Songs tab
+                        // The Songs view will detect the currentPlayingSong and show full player
+                    }
                     
                     Spacer()
                     
@@ -149,6 +154,25 @@ struct MainTabView: View {
             .background(Color.appBackground)
             .cornerRadius(10, corners: [.topLeft, .topRight])
             .shadow(color: Color.black.opacity(0.2), radius: 4, y: -2)
+            
+            // Add playback progress bar
+            GeometryReader { geometry in
+                ZStack(alignment: .leading) {
+                    // Background track
+                    Rectangle()
+                        .fill(Color.appDivider)
+                        .frame(height: 2)
+                    
+                    // Progress indicator
+                    if let song = appState.currentPlayingSong, let duration = song.duration, duration > 0 {
+                        Rectangle()
+                            .fill(Color.appPrimary)
+                            .frame(width: max(0, min(geometry.size.width, geometry.size.width * CGFloat(appState.currentPlaybackPosition / duration))), height: 2)
+                    }
+                }
+            }
+            .frame(height: 2)
+            .padding(.top, -8) // Negative padding to attach to the mini-player above
         }
     }
     

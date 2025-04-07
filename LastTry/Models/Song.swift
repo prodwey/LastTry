@@ -378,9 +378,25 @@ class SongManager: ObservableObject {
         // Create AVURLAsset
         let asset = AVURLAsset(url: url)
         
-        // For simplicity, use the synchronous method which is still available
-        // This avoids the async/await complexity for now
-        return asset.duration.seconds
+        // Since this is initial setup, we'll use a simple approach for iOS 16+
+        // For actual playback, we'll use the more accurate method in AudioService
+        
+        #if os(iOS)
+        if #available(iOS 16.0, *) {
+            // Use CMTimeGetSeconds instead of the deprecated seconds property
+            let time = asset.duration
+            let seconds = CMTimeGetSeconds(time)
+            return seconds > 0 ? seconds : nil
+        } else {
+            // Pre-iOS 16 approach
+            let durationSeconds = asset.duration.seconds
+            return durationSeconds.isNaN || durationSeconds <= 0 ? nil : durationSeconds
+        }
+        #else
+        // For non-iOS platforms
+        let durationSeconds = asset.duration.seconds
+        return durationSeconds.isNaN || durationSeconds <= 0 ? nil : durationSeconds
+        #endif
     }
     
     // MARK: - CoreData methods

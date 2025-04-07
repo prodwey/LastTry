@@ -4,6 +4,7 @@ import CoreData
 import Firebase
 import FirebaseAuth
 import Combine
+import AVFoundation
 
 enum AppLanguage: String, CaseIterable, Identifiable {
     case portugueseBR = "Brazilian Portuguese"
@@ -29,6 +30,9 @@ class AppState: ObservableObject {
     // Authentication service - new centralized auth management
     @Published var authService = AuthenticationService()
     
+    // Audio service - added for real audio playback
+    @Published var audioService = AudioService()
+    
     // Simple authentication state tracking - now derived from authService
     @Published var isAuthenticated: Bool = false
     
@@ -37,6 +41,7 @@ class AppState: ObservableObject {
     @Published var currentPlayingSong: Song? = nil
     @Published var isPlaying: Bool = false
     @Published var currentPlaybackPosition: TimeInterval = 0
+    @Published var audioError: AudioError? = nil
     
     private let coreDataManager = CoreDataManager.shared
     private var cancellables = Set<AnyCancellable>()
@@ -52,6 +57,9 @@ class AppState: ObservableObject {
         
         // Subscribe to auth state changes from AuthenticationService
         setupAuthStateSubscription()
+        
+        // Subscribe to audio service state changes
+        setupAudioServiceSubscription()
         
         // Fetch news data
         newsManager.fetchNews()
@@ -85,6 +93,36 @@ class AppState: ObservableObject {
                     // We're not authenticated and don't have demo data
                     self.loadDemoData()
                 }
+            }
+            .store(in: &cancellables)
+    }
+    
+    // MARK: - Audio Service Subscription
+    
+    private func setupAudioServiceSubscription() {
+        print("AppState: Setting up audio service subscription")
+        
+        // Sync AudioService's currentTime with our currentPlaybackPosition
+        audioService.$currentTime
+            .receive(on: RunLoop.main)
+            .sink { [weak self] time in
+                self?.currentPlaybackPosition = time
+            }
+            .store(in: &cancellables)
+        
+        // Sync AudioService's isPlaying with our isPlaying
+        audioService.$isPlaying
+            .receive(on: RunLoop.main)
+            .sink { [weak self] isPlaying in
+                self?.isPlaying = isPlaying
+            }
+            .store(in: &cancellables)
+        
+        // Sync AudioService's currentSong with our currentPlayingSong
+        audioService.$currentSong
+            .receive(on: RunLoop.main)
+            .sink { [weak self] song in
+                self?.currentPlayingSong = song
             }
             .store(in: &cancellables)
     }
@@ -274,27 +312,35 @@ class AppState: ObservableObject {
     }
     
     func playSong(_ song: Song) {
-        self.currentPlayingSong = song
-        self.isPlaying = true
-        self.currentPlaybackPosition = 0
-        // In a real app, this would actually play the audio
+        // Clear any previous error
+        audioError = nil
+        
+        // Try to play the song using the audio service
+        do {
+            try audioService.playSong(song)
+        } catch let error as AudioError {
+            audioError = error
+            print("Audio playback error: \(error.localizedDescription)")
+        } catch {
+            audioError = AudioError.playbackError(error.localizedDescription)
+            print("Unexpected audio error: \(error.localizedDescription)")
+        }
     }
     
     func pausePlayback() {
-        self.isPlaying = false
-        // In a real app, this would pause the audio
+        audioService.pausePlayback()
     }
     
     func resumePlayback() {
-        self.isPlaying = true
-        // In a real app, this would resume the audio
+        audioService.resumePlayback()
     }
     
     func stopPlayback() {
-        self.currentPlayingSong = nil
-        self.isPlaying = false
-        self.currentPlaybackPosition = 0
-        // In a real app, this would stop the audio
+        audioService.stopPlayback()
+    }
+    
+    func seekToPosition(_ position: TimeInterval) {
+        audioService.seek(to: position)
     }
     
     func switchLanguage(to language: AppLanguage) {

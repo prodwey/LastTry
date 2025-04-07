@@ -11,12 +11,17 @@ extension SessionEntity {
             songModels = songEntities.map { $0.toModel() }
         }
         
+        // Get the string arrays directly to avoid conditional downcast warnings
+        // Using forced unwrapping with null coalescing to avoid the warning about redundant conditional cast
+        let producers = self.additionalProducers as [String]? ?? []
+        let singersArray = self.singers as [String]? ?? []
+        
         return Session(
             id: self.id ?? UUID().uuidString,
             studio: Studio(rawValue: self.studio ?? Studio.studioA.rawValue) ?? .studioA,
             mainProducer: self.mainProducer ?? "",
-            additionalProducers: self.additionalProducers as? [String] ?? [],
-            singers: self.singers as? [String] ?? [],
+            additionalProducers: producers,
+            singers: singersArray,
             date: self.date ?? Date(),
             duration: self.duration,
             songs: songModels
