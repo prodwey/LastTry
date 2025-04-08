@@ -4,6 +4,39 @@ import AVFoundation
 
 extension SongEntity {
     
+    // MARK: - Persistent File URL Handling
+    
+    /// The persisted file URL string
+    @objc var fileURLString: String? {
+        get {
+            // If fileURL is already a string, return it directly
+            if let urlString = self.primitiveValue(forKey: "fileURLString") as? String {
+                return urlString
+            }
+            
+            // If we have a URL, convert it to a string for persistence
+            if let fileURL = self.fileURL {
+                let urlString = FilePersistenceHelper.shared.persistFileURL(fileURL)
+                self.setPrimitiveValue(urlString, forKey: "fileURLString")
+                return urlString
+            }
+            
+            return nil
+        }
+        set {
+            self.setPrimitiveValue(newValue, forKey: "fileURLString")
+            
+            // Also update the fileURL property for convenience
+            if let urlString = newValue {
+                self.fileURL = FilePersistenceHelper.shared.restoreFileURL(from: urlString)
+            } else {
+                self.fileURL = nil
+            }
+        }
+    }
+    
+    // MARK: - Model Conversion
+    
     // Convert from SongEntity (CoreData) to Song (Model)
     func toModel() -> Song {
         // Convert artists if they exist
@@ -12,11 +45,16 @@ extension SongEntity {
             artistModels = artistEntities.map { $0.toModel() }
         }
         
-        // No need to convert - fileURL is already a URL in CoreData
+        // Get the file URL, either directly or from the string representation
+        var url = self.fileURL
+        if url == nil && self.fileURLString != nil {
+            url = FilePersistenceHelper.shared.restoreFileURL(from: self.fileURLString)
+        }
+        
         return Song(
             id: self.id ?? UUID().uuidString,
             name: self.name ?? "",
-            fileURL: self.fileURL,
+            fileURL: url,
             format: AudioFormat(rawValue: self.format ?? AudioFormat.mp3.rawValue) ?? .mp3,
             artists: artistModels,
             lyrics: self.lyrics,
@@ -42,8 +80,9 @@ extension SongEntity {
             entity.id = model.id
             entity.name = model.name
             
-            // Direct assignment - no need to convert URL to string
+            // Store both the direct URL and the string representation
             entity.fileURL = model.fileURL
+            entity.fileURLString = FilePersistenceHelper.shared.persistFileURL(model.fileURL)
             
             entity.format = model.format.rawValue
             entity.lyrics = model.lyrics
@@ -87,8 +126,9 @@ extension SongEntity {
             entity.id = model.id
             entity.name = model.name
             
-            // Direct assignment - no need to convert URL to string
+            // Store both the direct URL and the string representation
             entity.fileURL = model.fileURL
+            entity.fileURLString = FilePersistenceHelper.shared.persistFileURL(model.fileURL)
             
             entity.format = model.format.rawValue
             entity.lyrics = model.lyrics
@@ -98,5 +138,59 @@ extension SongEntity {
             
             return entity
         }
+    }
+    
+    // MARK: - File Validation
+    
+    /// Validate that the associated audio file exists
+    func validateAudioFile() -> Bool {
+        guard let id = self.id, let format = self.format else {
+            return false
+        }
+        
+        if let audioFormat = AudioFormat(rawValue: format) {
+            return AudioFileManager.shared.songAudioFileExists(songId: id, format: audioFormat)
+        }
+        
+        return false
+    }
+    
+    /// Get the file URL for this song, generating it from ID and format if necessary
+    func resolveFileURL() -> URL? {
+        // First try the direct URL property
+        if let url = self.fileURL, FileManager.default.fileExists(atPath: url.path) {
+            return url
+        }
+        
+        // Then try the string representation
+        if let urlString = self.fileURLString, 
+           let url = FilePersistenceHelper.shared.restoreFileURL(from: urlString),
+           FileManager.default.fileExists(atPath: url.path) {
+            // Update the direct URL property
+            self.fileURL = url
+            return url
+        }
+        
+        // Finally, try to generate from ID and format
+        if let id = self.id, let formatString = self.format, 
+           let format = AudioFormat(rawValue: formatString) {
+            
+            // Check if the file exists at the expected location
+            if AudioFileManager.shared.songAudioFileExists(songId: id, format: format) {
+                do {
+                    let url = try AudioFileManager.shared.getSongAudioFile(songId: id, format: format)
+                    
+                    // Update the properties
+                    self.fileURL = url
+                    self.fileURLString = FilePersistenceHelper.shared.persistFileURL(url)
+                    
+                    return url
+                } catch {
+                    print("Error resolving file URL: \(error)")
+                }
+            }
+        }
+        
+        return nil
     }
 } 

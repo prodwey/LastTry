@@ -1,6 +1,7 @@
 import Foundation
 import AVFoundation
 import CoreData
+import Combine
 
 // Custom error types for song management
 enum SongError: Error, LocalizedError, Equatable {
@@ -215,8 +216,18 @@ class SongDataManager: CoreDataManaging {
         entity.id = model.id
         entity.name = model.name
         
-        // Direct assignment - fileURL is a URL type in CoreData
-        entity.fileURL = model.fileURL
+        // Handle file URL with our new persistence helper
+        if let fileURL = model.fileURL {
+            entity.fileURL = fileURL
+            entity.fileURLString = FilePersistenceHelper.shared.persistFileURL(fileURL)
+        } else if let format = AudioFormat(rawValue: model.format.rawValue) {
+            // If no URL is provided but we have format info, generate expected URL
+            let expectedURL = AudioFileManager.shared.getSongFileURL(songId: model.id, format: format)
+            if FileManager.default.fileExists(atPath: expectedURL.path) {
+                entity.fileURL = expectedURL
+                entity.fileURLString = FilePersistenceHelper.shared.persistFileURL(expectedURL)
+            }
+        }
         
         entity.format = model.format.rawValue
         entity.lyrics = model.lyrics
@@ -261,7 +272,8 @@ class SongDataManager: CoreDataManaging {
     }
     
     func createModel(from entity: SongEntity) -> Song {
-        // Direct use of entity.fileURL - it's already a URL
+        // Resolve the file URL using our new helper method
+        let fileURL = entity.resolveFileURL()
         
         // Convert format string to AudioFormat enum
         let format = AudioFormat(rawValue: entity.format ?? "") ?? .mp3
@@ -277,7 +289,7 @@ class SongDataManager: CoreDataManaging {
         return Song(
             id: entity.id ?? UUID().uuidString,
             name: entity.name ?? "",
-            fileURL: entity.fileURL,
+            fileURL: fileURL,
             format: format,
             artists: artists,
             lyrics: entity.lyrics,
@@ -302,6 +314,42 @@ class SongManager: ObservableObject {
     private let coreDataManager = CoreDataManager.shared
     // Reference to the song data manager
     private let songDataManager = SongDataManager()
+    // Reference to our file persistence helper
+    private let filePersistenceHelper = FilePersistenceHelper.shared
+    
+    // Listen for file upload status updates
+    private var cancellables = Set<AnyCancellable>()
+    
+    init() {
+        // Set up subscription to file upload status
+        filePersistenceHelper.uploadStatus
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] status in
+                switch status {
+                case .failed(_, let error):
+                    // Convert to SongError if needed
+                    if let fileError = error as? FileStorageError {
+                        switch fileError {
+                        case .fileNotFound:
+                            self?.songError = .fileNotFound
+                        case .invalidFileFormat(let message):
+                            self?.songError = .invalidFileFormat(message)
+                        default:
+                            self?.songError = .fileError(fileError.localizedDescription)
+                        }
+                    } else {
+                        self?.songError = .fileError(error.localizedDescription)
+                    }
+                case .uploading, .completed:
+                    // These are handled by specific methods
+                    break
+                }
+            }
+            .store(in: &cancellables)
+        
+        // Load songs from CoreData on initialization
+        loadSongs()
+    }
     
     func addSong(name: String, fileURL: URL, artists: [Artist], lyrics: String?, sessionId: String) -> Bool {
         // Validate session ID
@@ -322,22 +370,30 @@ class SongManager: ObservableObject {
             return false
         }
         
+        // Create a unique ID for the song
+        let songId = UUID().uuidString
+        
         // Get file attributes only for file URLs
         var fileSize: Int64? = nil
         var duration: TimeInterval? = nil
         
         if fileURL.isFileURL {
-            // Get file size
-            fileSize = getFileSize(url: fileURL)
-            
-            // Get audio duration
-            duration = getAudioDuration(url: fileURL)
+            do {
+                // Extract audio metadata
+                let (extractedDuration, extractedFileSize) = try AudioFileManager.shared.extractAudioMetadata(from: fileURL)
+                duration = extractedDuration
+                fileSize = extractedFileSize
+            } catch {
+                print("Error extracting audio metadata: \(error.localizedDescription)")
+                // Continue anyway, we'll try to get this info again after storing
+            }
         }
         
+        // Start by creating a song with the original URL
         let newSong = Song(
-            id: UUID().uuidString,
+            id: songId,
             name: name,
-            fileURL: fileURL,  // Use URL directly, CoreData can handle it as URI type
+            fileURL: fileURL, 
             format: format,
             artists: artists,
             lyrics: lyrics,
@@ -347,80 +403,133 @@ class SongManager: ObservableObject {
             sessionId: sessionId
         )
         
-        // Add song to CoreData using Result
-        let result = songDataManager.performBackgroundTask { context in
-            let saveResult = self.songDataManager.saveOrUpdate(
-                model: newSong, 
-                idValue: newSong.id, 
-                in: context
-            )
-            
-            switch saveResult {
-            case .success(_):
-                return .success(())
-            case .failure(let error):
-                return .failure(error)
-            }
-        }
-        
-        switch result {
-        case .success(_):
-            // Add song to array
+        // If it's a file URL, we need to permanently store the file
+        if fileURL.isFileURL {
+            // First add the song to the array with the original URL
             DispatchQueue.main.async {
                 self.songs.append(newSong)
             }
+            
+            // Then upload the file in the background
+            filePersistenceHelper.uploadSongFile(from: fileURL, songId: songId, format: format)
+                .sink(
+                    receiveCompletion: { [weak self] completion in
+                        if case .failure(let error) = completion {
+                            print("Failed to upload song file: \(error.localizedDescription)")
+                            
+                            DispatchQueue.main.async {
+                                // Set the error
+                                if let fileError = error as? FileStorageError {
+                                    switch fileError {
+                                    case .fileNotFound:
+                                        self?.songError = .fileNotFound
+                                    case .invalidFileFormat(let message):
+                                        self?.songError = .invalidFileFormat(message)
+                                    default:
+                                        self?.songError = .fileError(fileError.localizedDescription)
+                                    }
+                                } else {
+                                    self?.songError = .fileError(error.localizedDescription)
+                                }
+                                
+                                // Remove the song from the array if upload failed
+                                self?.songs.removeAll { $0.id == songId }
+                            }
+                        }
+                    },
+                    receiveValue: { [weak self] permanentURL in
+                        guard let self = self else { return }
+                        
+                        // Update the song with the permanent URL
+                        var updatedSong = newSong
+                        updatedSong.fileURL = permanentURL
+                        
+                        // Try to update fileSize and duration if we couldn't get them earlier
+                        if fileSize == nil || duration == nil {
+                            do {
+                                let (extractedDuration, extractedFileSize) = try AudioFileManager.shared.extractAudioMetadata(from: permanentURL)
+                                updatedSong.duration = extractedDuration
+                                updatedSong.fileSize = extractedFileSize
+                            } catch {
+                                print("Error extracting audio metadata after upload: \(error.localizedDescription)")
+                            }
+                        }
+                        
+                        // Now save to CoreData with the permanent URL
+                        let result = self.songDataManager.performBackgroundTask { context in
+                            self.songDataManager.saveOrUpdate(
+                                model: updatedSong, 
+                                idValue: updatedSong.id, 
+                                in: context
+                            )
+                        }
+                        
+                        DispatchQueue.main.async {
+                            // Update the song in our published array
+                            if let index = self.songs.firstIndex(where: { $0.id == songId }) {
+                                self.songs[index] = updatedSong
+                            }
+                            
+                            // Handle any CoreData errors
+                            if case .failure(let error) = result {
+                                self.songError = .failedToSave("Failed to save song to database: \(error.localizedDescription)")
+                            }
+                        }
+                    }
+                )
+                .store(in: &cancellables)
+            
             return true
-        case .failure(let error):
-            songError = .failedToSave("Failed to save song: \(error.localizedDescription)")
-            return false
+        } else {
+            // For non-file URLs (e.g. remote URLs), just save directly
+            let result = songDataManager.performBackgroundTask { context in
+                self.songDataManager.saveOrUpdate(
+                    model: newSong, 
+                    idValue: newSong.id, 
+                    in: context
+                )
+            }
+            
+            switch result {
+            case .success(_):
+                // Add song to array
+                DispatchQueue.main.async {
+                    self.songs.append(newSong)
+                }
+                return true
+            case .failure(let error):
+                songError = .failedToSave("Failed to save song: \(error.localizedDescription)")
+                return false
+            }
         }
     }
     
     private func getFileSize(url: URL) -> Int64? {
         do {
-            let resources = try url.resourceValues(forKeys: [.fileSizeKey])
-            if let fileSize = resources.fileSize {
-                return Int64(fileSize)
-            }
+            let resourceValues = try url.resourceValues(forKeys: [.fileSizeKey])
+            return resourceValues.fileSize.map { Int64($0) }
         } catch {
-            print("Error getting file size: \(error)")
-            songError = .fileError("Error getting file size: \(error.localizedDescription)")
+            print("Error getting file size: \(error.localizedDescription)")
+            return nil
         }
-        return nil
     }
     
     private func getAudioDuration(url: URL) -> TimeInterval? {
-        // Create AVURLAsset
-        let asset = AVURLAsset(url: url)
-        
-        // Since this is initial setup, we'll use a simple approach for iOS 16+
-        // For actual playback, we'll use the more accurate method in AudioService
-        
-        #if os(iOS)
-        if #available(iOS 16.0, *) {
-            // Use CMTimeGetSeconds instead of the deprecated seconds property
-            let time = asset.duration
-            let seconds = CMTimeGetSeconds(time)
-            return seconds > 0 ? seconds : nil
-        } else {
-            // Pre-iOS 16 approach
-            let durationSeconds = asset.duration.seconds
-            return durationSeconds.isNaN || durationSeconds <= 0 ? nil : durationSeconds
+        do {
+            // Create audio player to get duration
+            let audioPlayer = try AVAudioPlayer(contentsOf: url)
+            return audioPlayer.duration
+        } catch {
+            print("Error getting audio duration: \(error.localizedDescription)")
+            return nil
         }
-        #else
-        // For non-iOS platforms
-        let durationSeconds = asset.duration.seconds
-        return durationSeconds.isNaN || durationSeconds <= 0 ? nil : durationSeconds
-        #endif
     }
     
-    // MARK: - CoreData methods
-    
-    // Load all songs from CoreData - updated to use Result
+    // Load all songs from CoreData
     func loadSongs() {
         let context = coreDataManager.viewContext
         
-        // Create sort descriptor for date
+        // Create sort descriptor
         let sortDescriptor = NSSortDescriptor(key: "dateCreated", ascending: false)
         
         // Use songDataManager to fetch with Result
@@ -431,7 +540,14 @@ class SongManager: ObservableObject {
         
         switch result {
         case .success(let entities):
-            let loadedSongs = songDataManager.createModels(from: entities)
+            // Validate each entity's file existence
+            let validatedEntities = entities.map { entity -> SongEntity in
+                // Ensure the fileURL is resolved
+                let _ = entity.resolveFileURL()
+                return entity
+            }
+            
+            let loadedSongs = songDataManager.createModels(from: validatedEntities)
             DispatchQueue.main.async {
                 self.songs = loadedSongs
             }
@@ -461,7 +577,14 @@ class SongManager: ObservableObject {
         
         switch result {
         case .success(let entities):
-            return songDataManager.createModels(from: entities)
+            // Validate each entity's file existence
+            let validatedEntities = entities.map { entity -> SongEntity in
+                // Ensure the fileURL is resolved
+                let _ = entity.resolveFileURL()
+                return entity
+            }
+            
+            return songDataManager.createModels(from: validatedEntities)
         case .failure(let error):
             print("Error loading songs for session: \(error.localizedDescription)")
             songError = .failedToLoad("Failed to load songs for session: \(error.localizedDescription)")
@@ -469,8 +592,26 @@ class SongManager: ObservableObject {
         }
     }
     
-    // Delete a song - updated to use Result
+    // Delete a song - updated to use Result and also delete the file
     func deleteSong(withID id: String) -> Bool {
+        // First, find the song to get its format and URL
+        guard let songToDelete = songs.first(where: { $0.id == id }) else {
+            songError = .songNotFound("Song not found for deletion")
+            return false
+        }
+        
+        // Try to delete the associated file if we have format info
+        if let format = AudioFormat(rawValue: songToDelete.format.rawValue) {
+            do {
+                // Attempt to delete the file, but don't fail if file doesn't exist
+                try AudioFileManager.shared.deleteSongAudioFile(songId: id, format: format)
+            } catch {
+                print("Warning: Could not delete song file: \(error.localizedDescription)")
+                // Continue with the deletion of the CoreData entity
+            }
+        }
+        
+        // Now delete from CoreData
         let result = songDataManager.performBackgroundTask { context in
             return self.songDataManager.deleteById(id: id, in: context)
         }
@@ -485,6 +626,28 @@ class SongManager: ObservableObject {
         case .failure(let error):
             songError = .failedToDelete("Failed to delete song: \(error.localizedDescription)")
             return false
+        }
+    }
+    
+    // Get a song by ID
+    func getSong(withID id: String) -> Song? {
+        return songs.first { $0.id == id }
+    }
+    
+    // Validate all songs and ensure their files exist
+    func validateSongs() {
+        // Check if all song files exist
+        let validationResults = FilePersistenceHelper.shared.validateSongFiles(songs: songs)
+        
+        // Count of valid and invalid songs
+        let validCount = validationResults.values.filter { $0 }.count
+        let invalidCount = validationResults.values.filter { !$0 }.count
+        
+        print("Song validation: \(validCount) valid, \(invalidCount) invalid")
+        
+        // Return the number of invalid songs
+        if invalidCount > 0 {
+            songError = .fileNotFound
         }
     }
     
