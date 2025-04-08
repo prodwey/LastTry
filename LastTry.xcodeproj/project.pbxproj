@@ -14,9 +14,22 @@
 		45CD4D302DA0139700F17A67 /* LastTry.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = LastTry.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
+/* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
+		452923182DA54BE2003D573A /* Exceptions for "LastTry" folder in "LastTry" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Info.plist,
+			);
+			target = 45CD4D2F2DA0139700F17A67 /* LastTry */;
+		};
+/* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
+
 /* Begin PBXFileSystemSynchronizedRootGroup section */
 		45CD4D322DA0139700F17A67 /* LastTry */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				452923182DA54BE2003D573A /* Exceptions for "LastTry" folder in "LastTry" target */,
+			);
 			path = LastTry;
 			sourceTree = "<group>";
 		};
