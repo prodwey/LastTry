@@ -410,12 +410,26 @@ class SongManager: ObservableObject {
                 self.songs.append(newSong)
             }
             
+            // Begin transaction
+            let transactionId = TransactionJournal.shared.beginTransaction(
+                operation: "uploadSong",
+                resourceId: songId,
+                sourcePath: fileURL.path,
+                metadata: format.rawValue
+            )
+            
             // Then upload the file in the background
             filePersistenceHelper.uploadSongFile(from: fileURL, songId: songId, format: format)
                 .sink(
                     receiveCompletion: { [weak self] completion in
                         if case .failure(let error) = completion {
                             print("Failed to upload song file: \(error.localizedDescription)")
+                            
+                            // Roll back transaction
+                            TransactionJournal.shared.failTransaction(
+                                id: transactionId,
+                                errorMessage: error.localizedDescription
+                            )
                             
                             DispatchQueue.main.async {
                                 // Set the error
@@ -440,6 +454,12 @@ class SongManager: ObservableObject {
                     receiveValue: { [weak self] permanentURL in
                         guard let self = self else { return }
                         
+                        // Update transaction state
+                        TransactionJournal.shared.updateTransaction(
+                            id: transactionId,
+                            state: .fileOperationCompleted
+                        )
+                        
                         // Update the song with the permanent URL
                         var updatedSong = newSong
                         updatedSong.fileURL = permanentURL
@@ -456,12 +476,11 @@ class SongManager: ObservableObject {
                         }
                         
                         // Now save to CoreData with the permanent URL
-                        let result = self.songDataManager.performBackgroundTask { context in
-                            self.songDataManager.saveOrUpdate(
-                                model: updatedSong, 
-                                idValue: updatedSong.id, 
+                        let result = self.songDataManager.performBackgroundTaskWithResult { context in
+                            return self.songDataManager.saveWithFileReferences(
+                                model: updatedSong,
                                 in: context
-                            )
+                            ).mapError { $0 as Error }
                         }
                         
                         DispatchQueue.main.async {
@@ -473,6 +492,10 @@ class SongManager: ObservableObject {
                             // Handle any CoreData errors
                             if case .failure(let error) = result {
                                 self.songError = .failedToSave("Failed to save song to database: \(error.localizedDescription)")
+                                
+                                // Transaction failure will be updated via notification
+                            } else {
+                                // Transaction completion will be handled via notification
                             }
                         }
                     }
@@ -482,12 +505,11 @@ class SongManager: ObservableObject {
             return true
         } else {
             // For non-file URLs (e.g. remote URLs), just save directly
-            let result = songDataManager.performBackgroundTask { context in
-                self.songDataManager.saveOrUpdate(
-                    model: newSong, 
-                    idValue: newSong.id, 
+            let result = songDataManager.performBackgroundTaskWithResult { context in
+                return self.songDataManager.saveWithFileReferences(
+                    model: newSong,
                     in: context
-                )
+                ).mapError { $0 as Error }
             }
             
             switch result {
@@ -528,26 +550,23 @@ class SongManager: ObservableObject {
     // Load all songs from CoreData
     func loadSongs() {
         let context = coreDataManager.viewContext
+        let songManager = self.songDataManager // Capture in local variable
         
         // Create sort descriptor
         let sortDescriptor = NSSortDescriptor(key: "dateCreated", ascending: false)
         
-        // Use songDataManager to fetch with Result
-        let result = songDataManager.fetch(
+        // First validate all song files to update any missing references
+        _ = songManager.validateAllSongFiles(in: context)
+        
+        // Then use songDataManager to fetch with Result
+        let result = songManager.fetch(
             sortDescriptors: [sortDescriptor],
             in: context
         )
         
         switch result {
         case .success(let entities):
-            // Validate each entity's file existence
-            let validatedEntities = entities.map { entity -> SongEntity in
-                // Ensure the fileURL is resolved
-                let _ = entity.resolveFileURL()
-                return entity
-            }
-            
-            let loadedSongs = songDataManager.createModels(from: validatedEntities)
+            let loadedSongs = songManager.createModels(from: entities)
             DispatchQueue.main.async {
                 self.songs = loadedSongs
             }
@@ -565,26 +584,20 @@ class SongManager: ObservableObject {
         }
         
         let context = coreDataManager.viewContext
+        let songManager = self.songDataManager // Capture in local variable
         
         // Create predicate for session relationship instead of sessionId property
         let predicate = NSPredicate(format: "session.id == %@", sessionId)
         
         // Use songDataManager to fetch with Result
-        let result = songDataManager.fetch(
+        let result = songManager.fetch(
             predicate: predicate,
             in: context
         )
         
         switch result {
         case .success(let entities):
-            // Validate each entity's file existence
-            let validatedEntities = entities.map { entity -> SongEntity in
-                // Ensure the fileURL is resolved
-                let _ = entity.resolveFileURL()
-                return entity
-            }
-            
-            return songDataManager.createModels(from: validatedEntities)
+            return songManager.createModels(from: entities)
         case .failure(let error):
             print("Error loading songs for session: \(error.localizedDescription)")
             songError = .failedToLoad("Failed to load songs for session: \(error.localizedDescription)")
@@ -600,20 +613,10 @@ class SongManager: ObservableObject {
             return false
         }
         
-        // Try to delete the associated file if we have format info
-        if let format = AudioFormat(rawValue: songToDelete.format.rawValue) {
-            do {
-                // Attempt to delete the file, but don't fail if file doesn't exist
-                try AudioFileManager.shared.deleteSongAudioFile(songId: id, format: format)
-            } catch {
-                print("Warning: Could not delete song file: \(error.localizedDescription)")
-                // Continue with the deletion of the CoreData entity
-            }
-        }
-        
-        // Now delete from CoreData
-        let result = songDataManager.performBackgroundTask { context in
-            return self.songDataManager.deleteById(id: id, in: context)
+        // Use our enhanced delete method which handles file deletion
+        let result = songDataManager.performBackgroundTaskWithResult { [self] context in
+            return self.songDataManager.deleteWithFileById(id: id, in: context)
+                .mapError { $0 as Error }
         }
         
         switch result {
@@ -636,18 +639,31 @@ class SongManager: ObservableObject {
     
     // Validate all songs and ensure their files exist
     func validateSongs() {
-        // Check if all song files exist
-        let validationResults = FilePersistenceHelper.shared.validateSongFiles(songs: songs)
+        // Use our enhanced validation method from CoreData
+        let result = songDataManager.performBackgroundTaskWithResult { [self] context in
+            return self.songDataManager.validateAllSongFiles(in: context)
+                .mapError { $0 as Error }
+        }
         
-        // Count of valid and invalid songs
-        let validCount = validationResults.values.filter { $0 }.count
-        let invalidCount = validationResults.values.filter { !$0 }.count
-        
-        print("Song validation: \(validCount) valid, \(invalidCount) invalid")
-        
-        // Return the number of invalid songs
-        if invalidCount > 0 {
-            songError = .fileNotFound
+        switch result {
+        case .success(let validationResults):
+            // Count of valid and invalid songs
+            let validCount = validationResults.values.filter { $0 }.count
+            let invalidCount = validationResults.values.filter { !$0 }.count
+            
+            print("Song validation: \(validCount) valid, \(invalidCount) invalid")
+            
+            // Reload songs to get updated URLs
+            loadSongs()
+            
+            // Update error state if needed
+            if invalidCount > 0 {
+                songError = .fileNotFound
+            }
+            
+        case .failure(let error):
+            print("Error validating songs: \(error.localizedDescription)")
+            songError = .failedToLoad("Failed to validate songs: \(error.localizedDescription)")
         }
     }
     
