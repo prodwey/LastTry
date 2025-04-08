@@ -2,8 +2,108 @@ import SwiftUI
 import PhotosUI
 import AVFoundation
 import UniformTypeIdentifiers
+import MobileCoreServices
 
-// DocumentPicker for audio files
+// Enhanced file picker for audio files that combines document picker and media picker
+struct AudioFilePicker: View {
+    @Binding var selectedURL: URL?
+    @State private var showingDocumentPicker = false
+    @State private var showingMediaPicker = false
+    @State private var selectedItems: [PHPickerResult] = []
+    @Environment(\.dismiss) var dismiss
+    
+    var completion: (Result<URL, Error>) -> Void
+    
+    var body: some View {
+        NavigationStack {
+            VStack(spacing: 20) {
+                Text("Select Audio File")
+                    .font(.headline)
+                    .padding(.top, 20)
+                
+                // File system option
+                Button {
+                    showingDocumentPicker = true
+                } label: {
+                    HStack {
+                        Image(systemName: "folder")
+                            .font(.title2)
+                        Text("Browse Files")
+                            .font(.title3)
+                    }
+                    .frame(maxWidth: .infinity)
+                    .padding()
+                    .background(Color.appPrimary)
+                    .foregroundColor(.white)
+                    .cornerRadius(10)
+                }
+                .padding(.horizontal)
+                
+                // Media library option
+                Button {
+                    showingMediaPicker = true
+                } label: {
+                    HStack {
+                        Image(systemName: "music.note.list")
+                            .font(.title2)
+                        Text("Choose from Media Library")
+                            .font(.title3)
+                    }
+                    .frame(maxWidth: .infinity)
+                    .padding()
+                    .background(Color.appElevatedBackground)
+                    .foregroundColor(.appTextPrimary)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 10)
+                            .stroke(Color.appDivider, lineWidth: 1)
+                    )
+                }
+                .padding(.horizontal)
+                
+                Spacer()
+                
+                Button("Cancel") {
+                    completion(.failure(NSError(domain: "AudioFilePicker", code: -1, userInfo: [NSLocalizedDescriptionKey: "Picker was cancelled"])))
+                    dismiss()
+                }
+                .padding(.bottom, 30)
+            }
+            .navigationTitle("Select Audio")
+            .navigationBarTitleDisplayMode(.inline)
+            // Document picker sheet
+            .sheet(isPresented: $showingDocumentPicker) {
+                DocumentPicker(selectedURL: $selectedURL) { result in
+                    showingDocumentPicker = false
+                    
+                    switch result {
+                    case .success(let url):
+                        completion(.success(url))
+                        dismiss()
+                    case .failure(let error):
+                        print("Error selecting audio file: \(error.localizedDescription)")
+                    }
+                }
+                .ignoresSafeArea()
+            }
+            // Media picker sheet
+            .sheet(isPresented: $showingMediaPicker) {
+                MediaPicker(selectedURL: $selectedURL) { result in
+                    showingMediaPicker = false
+                    
+                    switch result {
+                    case .success(let url):
+                        completion(.success(url))
+                        dismiss()
+                    case .failure(let error):
+                        print("Error selecting media: \(error.localizedDescription)")
+                    }
+                }
+            }
+        }
+    }
+}
+
+// Document picker for files from the file system
 struct DocumentPicker: UIViewControllerRepresentable {
     @Binding var selectedURL: URL?
     var completion: (Result<URL, Error>) -> Void = { _ in }
@@ -15,10 +115,10 @@ struct DocumentPicker: UIViewControllerRepresentable {
             .mp3,               // MP3 audio
             .wav,               // WAV audio
             .aiff,              // AIFF audio
-            .m4a,               // M4A audio
+            UTType(filenameExtension: "m4a") ?? .audio,       // M4A audio
             .mpeg4Audio,        // MPEG-4 audio
-            .aac,               // AAC audio
-            .flac               // FLAC audio
+            UTType(filenameExtension: "aac") ?? .audio,       // AAC audio
+            UTType(filenameExtension: "flac") ?? .audio       // FLAC audio
         ]
         
         // Create a document picker configured for audio files
@@ -56,6 +156,88 @@ struct DocumentPicker: UIViewControllerRepresentable {
         
         func documentPickerWasCancelled(_ controller: UIDocumentPickerViewController) {
             parent.completion(.failure(NSError(domain: "DocumentPicker", code: -1, userInfo: [NSLocalizedDescriptionKey: "Document picker was cancelled"])))
+        }
+    }
+}
+
+// Media picker for selecting from Photo Library (which can include audio files)
+struct MediaPicker: UIViewControllerRepresentable {
+    @Binding var selectedURL: URL?
+    var completion: (Result<URL, Error>) -> Void = { _ in }
+    
+    func makeUIViewController(context: Context) -> PHPickerViewController {
+        var configuration = PHPickerConfiguration()
+        // Since .audio filter is not directly available, we'll use any content type
+        configuration.filter = .any(of: [.images, .videos, .livePhotos])
+        configuration.selectionLimit = 1
+        
+        let picker = PHPickerViewController(configuration: configuration)
+        picker.delegate = context.coordinator
+        return picker
+    }
+    
+    func updateUIViewController(_ uiViewController: PHPickerViewController, context: Context) {}
+    
+    func makeCoordinator() -> Coordinator {
+        Coordinator(self)
+    }
+    
+    class Coordinator: NSObject, PHPickerViewControllerDelegate {
+        let parent: MediaPicker
+        
+        init(_ parent: MediaPicker) {
+            self.parent = parent
+        }
+        
+        func picker(_ picker: PHPickerViewController, didFinishPicking results: [PHPickerResult]) {
+            guard let result = results.first else {
+                picker.dismiss(animated: true)
+                parent.completion(.failure(NSError(domain: "MediaPicker", code: -1, userInfo: [NSLocalizedDescriptionKey: "No media selected"])))
+                return
+            }
+            
+            // Try to load file as audio
+            result.itemProvider.loadFileRepresentation(forTypeIdentifier: UTType.audio.identifier) { url, error in
+                if let error = error {
+                    DispatchQueue.main.async {
+                        self.parent.completion(.failure(error))
+                    }
+                    return
+                }
+                
+                guard let url = url else {
+                    DispatchQueue.main.async {
+                        self.parent.completion(.failure(NSError(domain: "MediaPicker", code: -1, userInfo: [NSLocalizedDescriptionKey: "Could not load file"])))
+                    }
+                    return
+                }
+                
+                // Create a copy in the app's temporary directory
+                let tempDir = FileManager.default.temporaryDirectory
+                let fileName = url.lastPathComponent
+                let destinationURL = tempDir.appendingPathComponent(fileName)
+                
+                do {
+                    // Remove any existing file
+                    if FileManager.default.fileExists(atPath: destinationURL.path) {
+                        try FileManager.default.removeItem(at: destinationURL)
+                    }
+                    
+                    // Copy the file
+                    try FileManager.default.copyItem(at: url, to: destinationURL)
+                    
+                    DispatchQueue.main.async {
+                        self.parent.selectedURL = destinationURL
+                        self.parent.completion(.success(destinationURL))
+                    }
+                } catch {
+                    DispatchQueue.main.async {
+                        self.parent.completion(.failure(error))
+                    }
+                }
+            }
+            
+            picker.dismiss(animated: true)
         }
     }
 }
@@ -182,7 +364,7 @@ struct SongUploadView: View {
                 .font(.headline)
             
             Button {
-                // Show document picker when button is tapped
+                // Show audio file picker when button is tapped
                 showAudioFilePicker = true
             } label: {
                 HStack {
@@ -196,9 +378,7 @@ struct SongUploadView: View {
                 .cornerRadius(10)
             }
             .sheet(isPresented: $showAudioFilePicker) {
-                DocumentPicker(selectedURL: $selectedAudioURL) { result in
-                    showAudioFilePicker = false
-                    
+                AudioFilePicker(selectedURL: $selectedAudioURL) { result in
                     switch result {
                     case .success(let url):
                         handleSelectedAudioFile(url)
@@ -206,7 +386,6 @@ struct SongUploadView: View {
                         print("Error selecting audio file: \(error.localizedDescription)")
                     }
                 }
-                .ignoresSafeArea()
             }
             
             if let audioFormat = audioFormat {
@@ -426,7 +605,8 @@ struct SongUploadView: View {
     }
     
     private func uploadSong() {
-        guard canUpload else { 
+        // Validate required fields
+        if !canUpload {
             if songName.isEmpty {
                 errorMessage = "Song name is required"
                 showError = true
@@ -446,7 +626,7 @@ struct SongUploadView: View {
         isLoading = true
         
         guard let audioURL = selectedAudioURL else { return }
-        guard let _ = audioFormat else { return }
+        guard audioFormat != nil else { return }
         
         let success = appState.songManager.addSong(
             name: songName,
@@ -494,9 +674,8 @@ struct SongUploadView: View {
     private func handleSelectedAudioFile(_ url: URL) {
         // Handle the selected audio file
         selectedAudioURL = url
-        if let fileExtension = url.pathExtension {
-            audioFormat = AudioFormat.fromFileExtension(fileExtension)
-        }
+        let fileExtension = url.pathExtension
+        audioFormat = AudioFormat.fromFileExtension(fileExtension)
     }
 }
 
