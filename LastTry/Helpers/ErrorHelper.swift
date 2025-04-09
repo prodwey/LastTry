@@ -295,6 +295,8 @@ extension AuthError {
             return .network(.noConnection)
         case .unknown:
             return .general(.internalError("Unknown authentication error"))
+        case .none:
+            return .general(.internalError("No authentication error details available"))
         }
     }
 }

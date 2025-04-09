@@ -63,7 +63,12 @@ class ServiceLocator {
         
         // Register services under their protocol interfaces
         // This allows future code to depend on the abstractions rather than concrete implementations
-        register(appState.authService, for: AuthenticationServiceProtocol.self)
+        
+        // For AuthenticationService, always use the shared instance
+        register(AuthenticationService.shared, for: AuthenticationServiceProtocol.self)  
+        register(AuthenticationService.shared, for: AuthenticationService.self)
+        
+        // For AudioService, use the instance from AppState for backward compatibility
         register(appState.audioService, for: AudioServiceProtocol.self)
         
         // For ErrorHandlingService, always use the shared instance
@@ -71,7 +76,6 @@ class ServiceLocator {
         register(ErrorHandlingService.shared, for: ErrorHandlingService.self)
         
         // Also register the original service implementations for backward compatibility
-        register(appState.authService, for: AuthenticationService.self)
         register(appState.audioService, for: AudioService.self)
         
         // Mark as initialized
