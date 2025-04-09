@@ -633,6 +633,7 @@ struct SongUploadView: View {
         let success = appState.songManager.addSong(
             name: songName,
             fileURL: audioURL,
+            format: audioFormat ?? .mp3,
             artists: artists,
             lyrics: lyrics.isEmpty ? nil : lyrics,
             sessionId: session.id
@@ -640,7 +641,7 @@ struct SongUploadView: View {
         
         if success {
             if let song = appState.songManager.songs.last {
-                appState.sessionManager.addSongToSession(sessionId: session.id, song: song)
+                _ = appState.sessionManager.addSongToSession(sessionId: session.id, song: song)
             }
             
             isLoading = false
@@ -668,7 +669,7 @@ struct SongUploadView: View {
             sessionId: session.id
         )
         
-        appState.sessionManager.addSongToSession(sessionId: session.id, song: emptySong)
+        _ = appState.sessionManager.addSongToSession(sessionId: session.id, song: emptySong)
         
         dismiss()
     }

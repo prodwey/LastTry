@@ -30,6 +30,14 @@ struct DashboardView: View {
     @State private var showError = false
     @State private var errorMessage = ""
     @State private var isCreatingTask = false
+    @State private var refreshID = UUID()
+    
+    // Get services directly from ServiceLocator
+    private let userManager = ServiceLocator.shared.resolve(UserManagerProtocol.self)
+    private let songManager = ServiceLocator.shared.resolve(SongManager.self)
+    private let taskManager = ServiceLocator.shared.resolve(TaskManagerProtocol.self)
+    private let sessionManager = ServiceLocator.shared.resolve(SessionManager.self)
+    private let newsManager = ServiceLocator.shared.resolve(NewsManagerProtocol.self)
     
     var body: some View {
         NavigationStack {
@@ -72,7 +80,7 @@ struct DashboardView: View {
     }
     
     private func checkForTaskErrors() {
-        if let taskError = appState.getTaskManager().taskError {
+        if let taskError = taskManager?.taskError {
             // Use our new static error reporting function - much cleaner!
             ErrorReporter.report(taskError)
             
@@ -82,7 +90,7 @@ struct DashboardView: View {
             isCreatingTask = false
             
             // Clear error after processing
-            appState.getTaskManager().clearError()
+            taskManager?.clearError()
         }
     }
     
@@ -93,7 +101,7 @@ struct DashboardView: View {
             VStack(spacing: 24) {
                 quickActionsSection
                 servicesDemoSection
-                recentlyPlayedSection
+                recentSongsSection
                 tasksSection
                 upcomingSessionsSection
                 
@@ -236,11 +244,11 @@ struct DashboardView: View {
         }
     }
     
-    private var recentlyPlayedSection: some View {
+    private var recentSongsSection: some View {
         VStack(alignment: .leading, spacing: 16) {
             SectionHeaderView(title: "Recently Played")
             
-            if appState.getSongManager().songs.isEmpty {
+            if songManager?.songs.isEmpty ?? true {
                 EmptyStateView(
                     icon: "music.note.list",
                     title: "No Recent Songs",
@@ -250,7 +258,7 @@ struct DashboardView: View {
             } else {
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 16) {
-                        ForEach(appState.getSongManager().songs.prefix(5)) { song in
+                        ForEach(songManager?.songs.prefix(5) ?? []) { song in
                             SongCardView(song: song) {
                                 appState.playSong(song)
                             }
@@ -266,7 +274,7 @@ struct DashboardView: View {
         VStack(alignment: .leading, spacing: 16) {
             SectionHeaderView(title: "Tasks")
             
-            if appState.getTaskManager().tasks.isEmpty {
+            if taskManager?.tasks.isEmpty ?? true {
                 EmptyStateView(
                     icon: "checklist",
                     title: "No Active Tasks",
@@ -274,13 +282,13 @@ struct DashboardView: View {
                 )
                 .padding(.vertical, 20)
             } else {
-                let priorityTasks = appState.getTaskManager().sortedByPriority().prefix(3)
+                let priorityTasks = taskManager?.sortedByPriority().prefix(3) ?? []
                 
                 ForEach(Array(priorityTasks)) { task in
                     TaskRowView(task: task)
                 }
                 
-                if appState.getTaskManager().tasks.count > 3 {
+                if (taskManager?.tasks.count ?? 0) > 3 {
                     NavigationLink(destination: TaskListView()) {
                         Text("View All Tasks")
                             .font(.system(size: 16, weight: .medium))
@@ -297,7 +305,7 @@ struct DashboardView: View {
         VStack(alignment: .leading, spacing: 16) {
             SectionHeaderView(title: "Upcoming Sessions")
             
-            if appState.getSessionManager().upcomingSessions().isEmpty {
+            if sessionManager?.upcomingSessions().isEmpty ?? true {
                 EmptyStateView(
                     icon: "calendar",
                     title: "No Upcoming Sessions",
@@ -305,11 +313,11 @@ struct DashboardView: View {
                 )
                 .padding(.vertical, 20)
             } else {
-                ForEach(appState.getSessionManager().upcomingSessions().prefix(2)) { session in
+                ForEach(sessionManager?.upcomingSessions().prefix(2) ?? []) { session in
                     SessionRowView(session: session)
                 }
                 
-                if appState.getSessionManager().upcomingSessions().count > 2 {
+                if (sessionManager?.upcomingSessions().count ?? 0) > 2 {
                     NavigationLink(destination: Text("Session List")) {
                         Text("View All Sessions")
                             .font(.system(size: 16, weight: .medium))
@@ -323,12 +331,12 @@ struct DashboardView: View {
     }
     
     private var shouldShowPastSessionsSection: Bool {
-        let pastSessionsWithoutSongs = appState.getSessionManager().pastSessions().filter { !$0.hasUploadedAudio }
+        let pastSessionsWithoutSongs = sessionManager?.pastSessions().filter { !$0.hasUploadedAudio } ?? []
         return !pastSessionsWithoutSongs.isEmpty
     }
     
     private var pastSessionsWithoutUploadsSection: some View {
-        let pastSessionsWithoutSongs = appState.getSessionManager().pastSessions().filter { !$0.hasUploadedAudio }
+        let pastSessionsWithoutSongs = sessionManager?.pastSessions().filter { !$0.hasUploadedAudio } ?? []
         
         return VStack(alignment: .leading, spacing: 16) {
             SectionHeaderView(title: "Missing Uploads")
@@ -350,7 +358,7 @@ struct DashboardView: View {
         VStack(alignment: .leading, spacing: 16) {
             SectionHeaderView(title: "News & Updates")
             
-            if appState.getNewsManager().newsItems.isEmpty {
+            if newsManager?.newsItems.isEmpty ?? true {
                 EmptyStateView(
                     icon: "newspaper",
                     title: "No News Updates",
@@ -358,11 +366,11 @@ struct DashboardView: View {
                 )
                 .padding(.vertical, 20)
             } else {
-                ForEach(appState.getNewsManager().newsItems.prefix(3)) { news in
+                ForEach(newsManager?.newsItems.prefix(3) ?? []) { news in
                     NewsItemView()
                 }
                 
-                if appState.getNewsManager().newsItems.count > 3 {
+                if (newsManager?.newsItems.count ?? 0) > 3 {
                     NavigationLink(destination: Text("News List")) {
                         Text("View All News")
                             .font(.system(size: 16, weight: .medium))
@@ -388,19 +396,19 @@ struct DashboardView: View {
         // For now, we'll simulate a delay and create a simple task
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
             // Create a task with the AI prompt as description
-            let success = appState.getTaskManager().addTask(
+            let success = taskManager?.addTask(
                 title: "AI Generated Task",
                 description: aiTaskPrompt,
                 priority: .medium,
                 dueDate: Date().addingTimeInterval(24 * 60 * 60), // Tomorrow
-                assignedTo: appState.getUserManager().currentUser?.id,
-                createdBy: appState.getUserManager().currentUser?.id ?? ""
-            )
+                assignedTo: userManager?.currentUser?.id,
+                createdBy: userManager?.currentUser?.id ?? ""
+            ) ?? false
             
             if success {
                 isCreatingTask = false
                 aiTaskPrompt = ""
-            } else if appState.getTaskManager().taskError == nil {
+            } else if taskManager?.taskError == nil {
                 isCreatingTask = false
                 errorMessage = "Failed to create AI task. Please try again."
                 showError = true
@@ -512,7 +520,7 @@ struct TaskRowView: View {
             HStack(alignment: .top, spacing: 12) {
                 Button(action: {
                     // Use _ = to explicitly discard the result
-                    _ = appState.getTaskManager().toggleTaskCompletion(taskId: task.id)
+                    _ = appState.taskManager.toggleTaskCompletion(taskId: task.id)
                 }) {
                     Image(systemName: task.isCompleted ? "checkmark.circle.fill" : "circle")
                         .foregroundColor(task.isCompleted ? .green : .appTextSecondary)

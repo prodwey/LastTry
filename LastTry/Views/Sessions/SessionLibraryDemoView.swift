@@ -140,8 +140,8 @@ struct SessionLibraryDemoView: View {
         let success = SessionLibrary.bookSession(
             studio: .studioA,
             mainProducer: "Demo Producer",
-            additionalProducers: ["Assistant Producer"],
             singers: ["Demo Singer 1", "Demo Singer 2"],
+            additionalProducers: ["Assistant Producer"],
             date: futureDate,
             duration: 180 // 3 hours
         )

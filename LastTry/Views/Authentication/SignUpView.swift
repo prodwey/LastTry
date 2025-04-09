@@ -5,6 +5,10 @@ struct SignUpView: View {
     @EnvironmentObject var appState: AppState
     @Environment(\.dismiss) private var dismiss
     
+    // Get services from ServiceLocator
+    private let authService = ServiceLocator.shared.resolve(AuthenticationServiceProtocol.self)
+    private let userManager = ServiceLocator.shared.resolve(UserManagerProtocol.self)
+    
     @State private var name = ""
     @State private var email = ""
     @State private var password = ""
@@ -159,7 +163,7 @@ struct SignUpView: View {
             )
         }
         .withLoading(isLoading: isSigningUp, message: "Creating account...")
-        .onChange(of: appState.userManager.authError) { _, newError in
+        .onChange(of: userManager?.authError) { _, newError in
             if let error = newError {
                 errorMessage = error.localizedDescription
                 showError = true
@@ -172,7 +176,7 @@ struct SignUpView: View {
                 isSigningUp = false
             }
         }
-        .onChange(of: appState.authService.authError) { _, newError in
+        .onChange(of: authService?.authError) { _, newError in
             if let error = newError {
                 errorMessage = error.localizedDescription
                 showError = true
@@ -219,10 +223,10 @@ struct SignUpView: View {
         isSigningUp = true
         
         // Clear any previous errors
-        appState.authService.clearError()
+        authService?.clearError()
         
-        // Create account using the UserManager (which now uses AuthenticationService)
-        appState.userManager.signUp(
+        // Create account using the UserManager
+        userManager?.signUp(
             name: name,
             email: email,
             password: password,

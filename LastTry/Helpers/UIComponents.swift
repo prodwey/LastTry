@@ -432,38 +432,47 @@ struct ErrorHelper {
     }
 }
 
-// MARK: - App Error View
+// MARK: - App Error Handling View
+
+// A view that listens for errors from multiple services and displays them
 struct AppErrorView: View {
     @EnvironmentObject var appState: AppState
     @State private var showError = false
     @State private var errorMessage = ""
     @State private var errorSeverity: ErrorSeverity = .error
     
+    // Get services from ServiceLocator
+    private let authService = ServiceLocator.shared.resolve(AuthenticationServiceProtocol.self)
+    private let userManager = ServiceLocator.shared.resolve(UserManagerProtocol.self)
+    private let sessionManager = ServiceLocator.shared.resolve(SessionManager.self)
+    private let songManager = ServiceLocator.shared.resolve(SongManager.self)
+    private let taskManager = ServiceLocator.shared.resolve(TaskManagerProtocol.self)
+    
     var body: some View {
         Group {
             // This is an empty view that just observes errors
         }
-        .onChange(of: appState.authService.authError) { _, newError in
+        .onChange(of: authService?.authError) { _, newError in
             if let error = newError, let processedError = ErrorHelper.processAuthError(error) {
                 showError(message: processedError.message, severity: processedError.severity)
             }
         }
-        .onChange(of: appState.userManager.authError) { _, newError in
+        .onChange(of: userManager?.authError) { _, newError in
             if let error = newError, let processedError = ErrorHelper.processUserError(error) {
                 showError(message: processedError.message, severity: processedError.severity)
             }
         }
-        .onChange(of: appState.sessionManager.sessionError) { _, newError in
+        .onChange(of: sessionManager?.sessionError) { _, newError in
             if let error = newError, let processedError = ErrorHelper.processSessionError(error) {
                 showError(message: processedError.message, severity: processedError.severity)
             }
         }
-        .onChange(of: appState.songManager.songError) { _, newError in
+        .onChange(of: songManager?.songError) { _, newError in
             if let error = newError, let processedError = ErrorHelper.processSongError(error) {
                 showError(message: processedError.message, severity: processedError.severity)
             }
         }
-        .onChange(of: appState.taskManager.taskError) { _, newError in
+        .onChange(of: taskManager?.taskError) { _, newError in
             if let error = newError, let processedError = ErrorHelper.processTaskError(error) {
                 showError(message: processedError.message, severity: processedError.severity)
             }
