@@ -423,7 +423,7 @@ class AppState: ObservableObject {
     
     private func loadInitialData() {
         // Load user data
-        if let currentUser = userManager.currentUser {
+        if userManager.currentUser != nil {
             // User is already loaded
         } else if let firebaseUser = authService.currentUser {
             // Load user from Firebase if authenticated

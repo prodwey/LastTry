@@ -227,8 +227,7 @@ extension CoreDataManaging {
         
         // Notify TransactionJournal about database operation start
         if let song = model as? Song {
-            let metadata = try? JSONEncoder().encode(["operation": "saveWithFileReferences"])
-            
+            // Remove the unused metadata variable
             // Only log to journal if we're not already in a transaction
             // (the file operation should have already started one)
             NotificationCenter.default.post(

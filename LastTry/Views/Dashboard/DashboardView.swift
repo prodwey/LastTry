@@ -70,14 +70,14 @@ struct DashboardView: View {
     
     private func checkForTaskErrors() {
         if let taskError = appState.taskManager.taskError {
-            if let processedError = DetailedErrorProcessor.convertTaskError(taskError) {
-                errorMessage = processedError.message
-                showError = true
-                isCreatingTask = false
-                
-                // Clear error after processing
-                appState.taskManager.taskError = nil
-            }
+            // Use our central error handling system instead
+            appState.errorService.reportError(taskError)
+            errorMessage = taskError.localizedDescription
+            showError = true
+            isCreatingTask = false
+            
+            // Clear error after processing
+            appState.taskManager.taskError = nil
         }
     }
     
@@ -401,7 +401,8 @@ struct TaskRowView: View {
         NavigationLink(destination: EditTaskView(task: task)) {
             HStack(alignment: .top, spacing: 12) {
                 Button(action: {
-                    appState.taskManager.toggleTaskCompletion(taskId: task.id)
+                    // Use _ = to explicitly discard the result
+                    _ = appState.taskManager.toggleTaskCompletion(taskId: task.id)
                 }) {
                     Image(systemName: task.isCompleted ? "checkmark.circle.fill" : "circle")
                         .foregroundColor(task.isCompleted ? .green : .appTextSecondary)

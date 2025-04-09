@@ -383,6 +383,18 @@ extension UserError {
             return .data(.failedToUpdate(entity: "User", reason: message))
         case .coreDataError(let message):
             return .data(.failedToLoad(entity: "User", reason: message))
+        case .failedToSave(let message):
+            return .data(.failedToSave(entity: "User", reason: message))
+        case .failedToLoad(let message):
+            return .data(.failedToLoad(entity: "User", reason: message))
+        case .failedToDelete(let message):
+            return .data(.failedToDelete(entity: "User", reason: message))
+        case .duplicateUser(let message):
+            return .data(.duplicateEntry(entity: "User", field: message))
+        case .missingRequiredFields:
+            return .data(.invalidData(entity: "User", reason: "Missing required fields"))
+        case .unauthorized:
+            return .authentication(.unauthorized)
         }
     }
 }
