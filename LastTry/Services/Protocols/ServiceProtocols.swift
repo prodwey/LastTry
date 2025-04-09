@@ -121,5 +121,99 @@ protocol AudioServiceProtocol {
     func seek(to position: TimeInterval)
 }
 
+// MARK: - User Manager Protocol
+
+/// Protocol defining the public interface for the user manager
+protocol UserManagerProtocol: AnyObject {
+    /// The currently authenticated user, if any
+    var currentUser: User? { get }
+    
+    /// Whether a user is currently logged in
+    var isLoggedIn: Bool { get }
+    
+    /// The current user error, if any
+    var authError: UserError? { get }
+    
+    /// Load user data from Firebase user
+    func loadUserFromFirebase(_ firebaseUser: FirebaseAuth.User)
+    
+    /// Sign up user using the authentication service
+    func signUp(name: String, email: String, password: String, dateOfBirth: Date, role: UserRole)
+    
+    /// Login using the authentication service
+    func login(email: String, password: String)
+    
+    /// Logout using the authentication service
+    func logout()
+    
+    /// Update user profile information
+    func updateProfile(name: String, email: String, dateOfBirth: Date, role: UserRole) -> Bool
+    
+    /// Save user data to persistent storage
+    func saveUserData()
+    
+    /// Set the current user directly
+    func setCurrentUser(_ user: User?)
+    
+    /// Set the login state directly
+    func setLoggedIn(_ isLoggedIn: Bool)
+}
+
+// MARK: - Task Manager Protocol
+
+/// Protocol defining the public interface for the task manager
+protocol TaskManagerProtocol: AnyObject {
+    /// All tasks managed by this manager
+    var tasks: [Task] { get }
+    
+    /// The current task error, if any
+    var taskError: TaskError? { get }
+    
+    /// Load tasks from persistent storage
+    func loadTasks()
+    
+    /// Add a new task
+    func addTask(title: String, description: String, priority: TaskPriority, 
+                dueDate: Date?, assignedTo: String?, createdBy: String) -> Bool
+    
+    /// Toggle the completion status of a task
+    func toggleTaskCompletion(taskId: String) -> Bool
+    
+    /// Remove a task
+    func removeTask(taskId: String) -> Bool
+    
+    /// Update an existing task
+    func updateTask(task: Task) -> Bool
+    
+    /// Get tasks sorted by priority
+    func sortedByPriority() -> [Task]
+    
+    /// Get tasks assigned to a specific user
+    func tasksAssignedTo(userId: String) -> [Task]
+    
+    /// Set the tasks collection directly
+    func setTasks(_ tasks: [Task])
+    
+    /// Set the task error directly
+    func setTaskError(_ error: TaskError?)
+    
+    /// Clear any task error
+    func clearError()
+}
+
+// MARK: - News Manager Protocol
+
+/// Protocol defining the public interface for the news manager
+protocol NewsManagerProtocol: AnyObject {
+    /// All news items managed by this manager
+    var newsItems: [NewsItem] { get }
+    
+    /// Fetch news items from the remote source
+    func fetchNews()
+    
+    /// Get news items filtered by category
+    func getNewsByCategory(category: NewsCategory) -> [NewsItem]
+}
+
 // These protocols will be expanded as we continue refactoring
 // Additional protocols for managers will be added in subsequent steps 

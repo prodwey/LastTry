@@ -108,7 +108,7 @@ struct TaskListView: View {
                         showError = true
                         
                         // Clear error after user has seen it
-                        appState.taskManager.taskError = nil
+                        appState.taskManager.setTaskError(nil)
                     }
                 }
                 .onAppear {

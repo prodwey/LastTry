@@ -138,12 +138,42 @@ extension NewsItem: CoreDataConvertible {
     }
 }
 
-class NewsManager: ObservableObject {
+class NewsManager: ObservableObject, NewsManagerProtocol {
+    // MARK: - Singleton
+    
+    /// Shared instance for global access
+    static let shared = NewsManager()
+    
+    // MARK: - Published Properties
+    
     @Published var newsItems: [NewsItem] = []
+    @Published var newsError: NewsError? = nil
     
-    // Reference to CoreData manager
+    // MARK: - Private Properties
+    
+    // Service dependencies
     private let coreDataManager = CoreDataManager.shared
+    private let errorService: ErrorHandlingServiceProtocol
     
+    // MARK: - Initialization
+    
+    /// Private initializer for singleton pattern
+    private init() {
+        print("NewsManager: Initializing shared instance")
+        self.errorService = ServiceLocator.shared.resolve(ErrorHandlingServiceProtocol.self) ?? ErrorHandlingService.shared
+        fetchNews()
+    }
+    
+    /// Dependency injection initializer for testing
+    init(errorService: ErrorHandlingServiceProtocol) {
+        print("NewsManager: Initializing with custom dependencies")
+        self.errorService = errorService
+        // Don't automatically fetch news in test environment
+    }
+    
+    // MARK: - Public Methods
+    
+    /// Fetch news from the server or generate sample data
     func fetchNews() {
         // In a real app, this would make an API call to fetch news
         // For demo purposes, we'll create some sample news items
@@ -195,16 +225,19 @@ class NewsManager: ObservableObject {
         ]
         
         newsItems = brazilNews + globalNews
+        
+        // In a real app, we would handle network errors
+        // self.newsError = .networkError("Failed to fetch news")
+        // errorService.reportError(self.newsError!)
     }
     
+    /// Get news filtered by category
     func getNewsByCategory(category: NewsCategory) -> [NewsItem] {
         return newsItems.filter { $0.category == category }
-            .sorted(by: { $0.publicationDate > $1.publicationDate })
     }
     
-    func getLatestNews(limit: Int = 5) -> [NewsItem] {
-        return newsItems.sorted(by: { $0.publicationDate > $1.publicationDate })
-            .prefix(limit)
-            .map { $0 }
+    /// Get the most recent news item
+    func getMostRecentNews() -> NewsItem? {
+        return newsItems.sorted(by: { $0.publicationDate > $1.publicationDate }).first
     }
 } 

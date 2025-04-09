@@ -895,8 +895,9 @@ enum SongLibrary {
     
     /// Load songs for a specific session
     /// - Parameter sessionId: Session ID
-    static func loadSongsForSession(sessionId: String) {
-        manager.loadSongsForSession(sessionId: sessionId)
+    @discardableResult
+    static func loadSongsForSession(sessionId: String) -> [Song] {
+        return manager.loadSongsForSession(sessionId: sessionId)
     }
     
     /// Add a song to a session

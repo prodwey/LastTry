@@ -21,20 +21,16 @@ enum AppLanguage: String, CaseIterable, Identifiable {
 }
 
 class AppState: ObservableObject {
-    @Published var userManager = UserManager()
+    // Manager dependencies using protocol interfaces
+    @Published var userManager: UserManagerProtocol
     @Published var sessionManager: SessionManager
     @Published var songManager: SongManager
-    @Published var taskManager = TaskManager()
-    @Published var newsManager = NewsManager()
+    @Published var taskManager: TaskManagerProtocol
+    @Published var newsManager: NewsManagerProtocol
     
-    // Authentication service - now using the shared singleton
+    // Service dependencies using protocol interfaces
     @Published var authService: AuthenticationServiceProtocol
-    
-    // Audio service - now using the shared singleton
     @Published var audioService: AudioServiceProtocol
-    
-    // Centralized error handling service - now accessing the shared singleton
-    // We keep this for backward compatibility during refactoring
     @Published var errorService: ErrorHandlingServiceProtocol
     
     // Simple authentication state tracking - now derived from authService
@@ -57,23 +53,17 @@ class AppState: ObservableObject {
     init() {
         print("AppState: Initializing")
         
-        // Use the shared instance of ErrorHandlingService
+        // Initialize service dependencies using shared instances
         self.errorService = ErrorHandlingService.shared
-        
-        // Use the shared instance of AuthenticationService
         self.authService = AuthenticationService.shared
-        
-        // Use the shared instance of AudioService
         self.audioService = AudioService.shared
         
-        // Use the shared instance of SessionManager
+        // Initialize manager dependencies using shared instances
+        self.userManager = UserManager.shared
         self.sessionManager = SessionManager.shared
-        
-        // Use the shared instance of SongManager
         self.songManager = SongManager.shared
-        
-        // Set up connection between AppState and UserManager
-        userManager.appState = self
+        self.taskManager = TaskManager.shared
+        self.newsManager = NewsManager.shared
         
         // Check for CoreData migration need on first launch
         checkAndPerformMigration()
@@ -83,9 +73,6 @@ class AppState: ObservableObject {
         
         // Subscribe to audio service state changes
         setupAudioServiceSubscription()
-        
-        // Fetch news data
-        newsManager.fetchNews()
         
         // Start monitoring resources
         setupResourceMonitoring()
@@ -132,7 +119,7 @@ class AppState: ObservableObject {
     private func setupAuthStateSubscription() {
         print("AppState: Setting up auth state subscription")
         
-        authService.authStatePublisher
+        getAuthService().authStatePublisher
             .receive(on: RunLoop.main)
             .sink { [weak self] isAuthenticated in
                 guard let self = self else { return }
@@ -142,15 +129,15 @@ class AppState: ObservableObject {
                 print("AppState: Auth state changed, user is \(isAuthenticated ? "authenticated" : "not authenticated")")
                 
                 // Sync with UserManager
-                self.userManager.isLoggedIn = isAuthenticated
+                self.getUserManager().setLoggedIn(isAuthenticated)
                 
                 // Load user data or demo data based on authentication state
                 if isAuthenticated {
-                    if let firebaseUser = self.authService.currentUser, self.userManager.currentUser == nil {
+                    if let firebaseUser = self.getAuthService().currentUser, self.getUserManager().currentUser == nil {
                         // We're authenticated but don't have user data loaded
-                        self.userManager.loadUserFromFirebase(firebaseUser)
+                        self.getUserManager().loadUserFromFirebase(firebaseUser)
                     }
-                } else if self.userManager.currentUser == nil {
+                } else if self.getUserManager().currentUser == nil {
                     // We're not authenticated and don't have demo data
                     self.loadDemoData()
                 }
@@ -164,7 +151,7 @@ class AppState: ObservableObject {
         print("AppState: Setting up audio service subscription")
         
         // Sync AudioService's currentTime with our currentPlaybackPosition
-        audioService.currentTimePublisher
+        getAudioService().currentTimePublisher
             .receive(on: RunLoop.main)
             .sink { [weak self] time in
                 self?.currentPlaybackPosition = time
@@ -172,7 +159,7 @@ class AppState: ObservableObject {
             .store(in: &cancellables)
         
         // Sync AudioService's isPlaying with our isPlaying
-        audioService.isPlayingPublisher
+        getAudioService().isPlayingPublisher
             .receive(on: RunLoop.main)
             .sink { [weak self] isPlaying in
                 self?.isPlaying = isPlaying
@@ -180,7 +167,7 @@ class AppState: ObservableObject {
             .store(in: &cancellables)
         
         // Sync AudioService's currentSong with our currentPlayingSong
-        audioService.currentSongPublisher
+        getAudioService().currentSongPublisher
             .receive(on: RunLoop.main)
             .sink { [weak self] song in
                 self?.currentPlayingSong = song
@@ -217,11 +204,11 @@ class AppState: ObservableObject {
         }
         
         // Set as current user
-        userManager.currentUser = demoUser
-        userManager.isLoggedIn = true
+        getUserManager().setCurrentUser(demoUser)
+        getUserManager().setLoggedIn(true)
         
         // For backward compatibility
-        userManager.saveUserData()
+        getUserManager().saveUserData()
         
         // Add demo sessions
         let pastDate1 = Calendar.current.date(byAdding: .day, value: -3, to: Date()) ?? Date()
@@ -271,7 +258,7 @@ class AppState: ObservableObject {
             
             // Update sessions array on main thread
             DispatchQueue.main.async {
-                self.sessionManager.sessions = [pastSession1, pastSession2, futureSession]
+                self.getSessionManager().sessions = [pastSession1, pastSession2, futureSession]
             }
         }
         
@@ -312,7 +299,7 @@ class AppState: ObservableObject {
             isCompleted: true
         )
         
-        taskManager.tasks = [task1, task2, task3]
+        getTaskManager().setTasks([task1, task2, task3])
         
         // Add demo songs
         let song1 = Song(
@@ -360,15 +347,15 @@ class AppState: ObservableObject {
             sessionId: pastSession2ID
         )
         
-        songManager.songs = [song1, song2, song3]
+        getSongManager().songs = [song1, song2, song3]
         
         // Update sessions with songs
-        if let index1 = sessionManager.sessions.firstIndex(where: { $0.id == pastSession1ID }) {
-            sessionManager.sessions[index1].songs = [song1, song2]
+        if let index1 = getSessionManager().sessions.firstIndex(where: { $0.id == pastSession1ID }) {
+            getSessionManager().sessions[index1].songs = [song1, song2]
         }
         
-        if let index2 = sessionManager.sessions.firstIndex(where: { $0.id == pastSession2ID }) {
-            sessionManager.sessions[index2].songs = [song3]
+        if let index2 = getSessionManager().sessions.firstIndex(where: { $0.id == pastSession2ID }) {
+            getSessionManager().sessions[index2].songs = [song3]
         }
     }
     
@@ -376,9 +363,9 @@ class AppState: ObservableObject {
         // Clear any previous error
         audioError = nil
         
-        // Try to play the song using the audio service (which is now AudioService.shared)
+        // Try to play the song using the audio service through our accessor method
         do {
-            try audioService.playSong(song)
+            try getAudioService().playSong(song)
         } catch let error {
             // Use the error handling service to report the error
             ErrorReporter.report(error)
@@ -395,19 +382,19 @@ class AppState: ObservableObject {
     }
     
     func pausePlayback() {
-        audioService.pausePlayback()
+        getAudioService().pausePlayback()
     }
     
     func resumePlayback() {
-        audioService.resumePlayback()
+        getAudioService().resumePlayback()
     }
     
     func stopPlayback() {
-        audioService.stopPlayback()
+        getAudioService().stopPlayback()
     }
     
     func seekToPosition(_ position: TimeInterval) {
-        audioService.seek(to: position)
+        getAudioService().seek(to: position)
     }
     
     func switchLanguage(to language: AppLanguage) {
@@ -468,11 +455,11 @@ class AppState: ObservableObject {
     
     private func loadInitialData() {
         // Load user data
-        if userManager.currentUser != nil {
+        if getUserManager().currentUser != nil {
             // User is already loaded
-        } else if let firebaseUser = authService.currentUser {
+        } else if let firebaseUser = getAuthService().currentUser {
             // Load user from Firebase if authenticated
-            userManager.loadUserFromFirebase(firebaseUser)
+            getUserManager().loadUserFromFirebase(firebaseUser)
         }
         
         // For demo, populate with some data if needed
@@ -501,7 +488,7 @@ class AppState: ObservableObject {
             
             // Update app state on main thread
             DispatchQueue.main.async {
-                self.userManager.currentUser = demoUser
+                self.getUserManager().setCurrentUser(demoUser)
             }
         }
         
@@ -551,7 +538,7 @@ class AppState: ObservableObject {
             
             // Update sessions array on main thread
             DispatchQueue.main.async {
-                self.sessionManager.sessions = [pastSession1, pastSession2, futureSession]
+                self.getSessionManager().sessions = [pastSession1, pastSession2, futureSession]
             }
         }
         
@@ -600,7 +587,7 @@ class AppState: ObservableObject {
             
             // Update tasks array on main thread
             DispatchQueue.main.async {
-                self.taskManager.tasks = [task1, task2, task3]
+                self.getTaskManager().setTasks([task1, task2, task3])
             }
         }
         
@@ -627,5 +614,87 @@ class AppState: ObservableObject {
         songManager.loadSongs()
         sessionManager.loadSessions()
         taskManager.loadTasks()
+    }
+    
+    // MARK: - Service Access Methods (ServiceLocator Transition)
+    
+    /// Get the authentication service (transitional method)
+    /// This method attempts to get the service from ServiceLocator first,
+    /// then falls back to the direct reference if not found
+    func getAuthService() -> AuthenticationServiceProtocol {
+        if let service = ServiceLocator.shared.resolve(AuthenticationServiceProtocol.self) {
+            return service
+        }
+        return authService
+    }
+    
+    /// Get the audio service (transitional method)
+    /// This method attempts to get the service from ServiceLocator first,
+    /// then falls back to the direct reference if not found
+    func getAudioService() -> AudioServiceProtocol {
+        if let service = ServiceLocator.shared.resolve(AudioServiceProtocol.self) {
+            return service
+        }
+        return audioService
+    }
+    
+    /// Get the error handling service (transitional method)
+    /// This method attempts to get the service from ServiceLocator first,
+    /// then falls back to the direct reference if not found
+    func getErrorService() -> ErrorHandlingServiceProtocol {
+        if let service = ServiceLocator.shared.resolve(ErrorHandlingServiceProtocol.self) {
+            return service
+        }
+        return errorService
+    }
+    
+    /// Get the user manager (transitional method)
+    /// This method attempts to get the manager from ServiceLocator first,
+    /// then falls back to the direct reference if not found
+    func getUserManager() -> UserManagerProtocol {
+        if let manager = ServiceLocator.shared.resolve(UserManagerProtocol.self) {
+            return manager
+        }
+        return userManager
+    }
+    
+    /// Get the task manager (transitional method)
+    /// This method attempts to get the manager from ServiceLocator first,
+    /// then falls back to the direct reference if not found
+    func getTaskManager() -> TaskManagerProtocol {
+        if let manager = ServiceLocator.shared.resolve(TaskManagerProtocol.self) {
+            return manager
+        }
+        return taskManager
+    }
+    
+    /// Get the news manager (transitional method)
+    /// This method attempts to get the manager from ServiceLocator first,
+    /// then falls back to the direct reference if not found
+    func getNewsManager() -> NewsManagerProtocol {
+        if let manager = ServiceLocator.shared.resolve(NewsManagerProtocol.self) {
+            return manager
+        }
+        return newsManager
+    }
+    
+    /// Get the session manager (transitional method)
+    /// This method attempts to get the manager from ServiceLocator first,
+    /// then falls back to the direct reference if not found
+    func getSessionManager() -> SessionManager {
+        if let manager = ServiceLocator.shared.resolve(SessionManager.self) {
+            return manager
+        }
+        return sessionManager
+    }
+    
+    /// Get the song manager (transitional method)
+    /// This method attempts to get the manager from ServiceLocator first,
+    /// then falls back to the direct reference if not found
+    func getSongManager() -> SongManager {
+        if let manager = ServiceLocator.shared.resolve(SongManager.self) {
+            return manager
+        }
+        return songManager
     }
 } 

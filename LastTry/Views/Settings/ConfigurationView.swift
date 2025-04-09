@@ -34,294 +34,309 @@ struct ConfigurationView: View {
                 Color.appBackground
                     .ignoresSafeArea()
                 
-                VStack(spacing: 24) {
-                    // Welcome header
-                    if let user = appState.userManager.currentUser {
-                        VStack(spacing: 0) {
-                            HStack {
-                                Image(systemName: "person.circle.fill")
-                                    .resizable()
-                                    .frame(width: 60, height: 60)
+                ScrollView {
+                    VStack(spacing: 24) {
+                        // Welcome header section
+                        welcomeHeaderSection
+                        
+                        // Language settings section
+                        languageSettingsSection
+                        
+                        // Account settings section
+                        accountSettingsSection
+                        
+                        // Other options section
+                        otherOptionsSection
+                    }
+                    .padding(.bottom, 24)
+                }
+            }
+            .navigationTitle("Settings")
+            .sheet(isPresented: $showingPasswordSheet) {
+                PasswordChangeView()
+            }
+            .sheet(isPresented: $showingDatePicker) {
+                DatePickerView(date: $dateOfBirth)
+            }
+            .alert("Profile Updated", isPresented: $showSaveSuccessAlert) {
+                Button("OK", role: .cancel) {}
+            } message: {
+                Text("Your profile has been updated successfully.")
+            }
+            .alert("Error", isPresented: $showSaveErrorAlert) {
+                Button("OK", role: .cancel) {}
+            } message: {
+                Text(errorMessage)
+            }
+            .alert("Confirm Logout", isPresented: $showingLogoutAlert) {
+                Button("Cancel", role: .cancel) {}
+                Button("Logout", role: .destructive) {
+                    appState.getUserManager().logout()
+                }
+            } message: {
+                Text("Are you sure you want to logout?")
+            }
+        }
+    }
+    
+    private var welcomeHeaderSection: some View {
+        if let user = appState.getUserManager().currentUser {
+            return VStack(spacing: 0) {
+                HStack {
+                    Image(systemName: "person.circle.fill")
+                        .resizable()
+                        .frame(width: 60, height: 60)
+                        .foregroundColor(.appPrimary)
+                    
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Hello, \(user.name)")
+                            .font(.system(size: 22, weight: .medium))
+                            .foregroundColor(.black)
+                            .padding(.leading, 10)
+                    }
+                    
+                    Spacer()
+                    
+                    Text(user.role.rawValue)
+                        .font(.system(size: 16))
+                        .foregroundColor(Color(UIColor.darkGray))
+                }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 20)
+                .background(Color.white)
+                .cornerRadius(12)
+            }
+            .padding(.horizontal)
+        } else {
+            return EmptyView()
+        }
+    }
+    
+    private var languageSettingsSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("LANGUAGE")
+                .font(.footnote)
+                .fontWeight(.medium)
+                .foregroundColor(.gray)
+                .padding(.leading, 16)
+            
+            VStack(spacing: 0) {
+                ForEach(AppLanguage.allCases) { language in
+                    Button(action: {
+                        appState.switchLanguage(to: language)
+                    }) {
+                        HStack {
+                            Text(language.rawValue)
+                                .font(.system(size: 16))
+                                .foregroundColor(.black)
+                            
+                            Spacer()
+                            
+                            if appState.selectedLanguage == language {
+                                Image(systemName: "checkmark")
                                     .foregroundColor(.appPrimary)
-                                
-                                VStack(alignment: .leading, spacing: 2) {
-                                    Text("Hello, \(user.name)")
-                                        .font(.system(size: 22, weight: .medium))
-                                        .foregroundColor(.black)
-                                        .padding(.leading, 10)
+                            }
+                        }
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 14)
+                        .contentShape(Rectangle())
+                    }
+                    
+                    if language != AppLanguage.allCases.last {
+                        Divider()
+                            .padding(.leading, 16)
+                    }
+                }
+            }
+            .background(Color.white)
+            .cornerRadius(12)
+            .padding(.horizontal)
+        }
+    }
+    
+    private var accountSettingsSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("ACCOUNT")
+                .font(.footnote)
+                .fontWeight(.medium)
+                .foregroundColor(.gray)
+                .padding(.leading, 16)
+            
+            if let user = appState.getUserManager().currentUser {
+                if isEditingProfile {
+                    // Edit mode
+                    VStack(spacing: 16) {
+                        TextField("Name", text: $name)
+                            .padding()
+                            .background(Color(UIColor.systemGray6))
+                            .cornerRadius(8)
+                            .foregroundColor(.black)
+                        
+                        TextField("Email", text: $email)
+                            .padding()
+                            .background(Color(UIColor.systemGray6))
+                            .cornerRadius(8)
+                            .foregroundColor(.black)
+                        
+                        HStack {
+                            Text("Date of Birth")
+                                .foregroundColor(.black)
+                            
+                            Spacer()
+                            
+                            Text(dateFormatter.string(from: dateOfBirth))
+                                .foregroundColor(.appPrimary)
+                        }
+                        .padding()
+                        .background(Color(UIColor.systemGray6))
+                        .cornerRadius(8)
+                        .onTapGesture {
+                            showingDatePicker = true
+                        }
+                        
+                        HStack {
+                            Text("Role")
+                                .foregroundColor(.black)
+                            
+                            Spacer()
+                            
+                            Menu {
+                                ForEach(UserRole.allCases) { role in
+                                    Button(role.rawValue) {
+                                        self.role = role
+                                    }
                                 }
+                            } label: {
+                                HStack {
+                                    Text(role.rawValue)
+                                        .foregroundColor(.appPrimary)
+                                    Image(systemName: "chevron.up.chevron.down")
+                                        .foregroundColor(.appPrimary)
+                                        .font(.system(size: 12))
+                                }
+                            }
+                        }
+                        .padding()
+                        .background(Color(UIColor.systemGray6))
+                        .cornerRadius(8)
+                        
+                        HStack {
+                            Button("Save") {
+                                isSaving = true
+                                // Add a slight delay to show loading state
+                                DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                                    saveUserProfile()
+                                    isSaving = false
+                                    isEditingProfile = false
+                                }
+                            }
+                            .buttonStyle(PrimaryButtonStyle())
+                            .disabled(isSaving)
+                            
+                            Button("Cancel") {
+                                resetForm(with: user)
+                                isEditingProfile = false
+                            }
+                            .buttonStyle(SecondaryButtonStyle())
+                            .disabled(isSaving)
+                        }
+                    }
+                    .padding()
+                    .background(Color.white)
+                    .cornerRadius(12)
+                    .padding(.horizontal)
+                } else {
+                    // View mode in white card background
+                    VStack(spacing: 0) {
+                        // Edit Profile button
+                        Button(action: {
+                            resetForm(with: user)
+                            isEditingProfile = true
+                        }) {
+                            HStack {
+                                Image(systemName: "person.fill")
+                                    .foregroundColor(.blue)
+                                    .font(.system(size: 18))
+                                
+                                Text("Edit Profile")
+                                    .font(.system(size: 16))
+                                    .foregroundColor(.black)
                                 
                                 Spacer()
                                 
-                                Text(user.role.rawValue)
-                                    .font(.system(size: 16))
-                                    .foregroundColor(Color(UIColor.darkGray))
+                                Image(systemName: "chevron.right")
+                                    .font(.system(size: 14))
+                                    .foregroundColor(.gray)
                             }
                             .padding(.horizontal, 16)
-                            .padding(.vertical, 20)
-                            .background(Color.white)
-                            .cornerRadius(12)
+                            .padding(.vertical, 14)
+                            .contentShape(Rectangle())
                         }
-                        .padding(.horizontal)
-                    }
-                    
-                    // Language settings
-                    VStack(alignment: .leading, spacing: 12) {
-                        Text("LANGUAGE")
-                            .font(.footnote)
-                            .fontWeight(.medium)
-                            .foregroundColor(.gray)
-                            .padding(.leading, 16)
                         
-                        VStack(spacing: 0) {
-                            ForEach(AppLanguage.allCases) { language in
-                                Button(action: {
-                                    appState.switchLanguage(to: language)
-                                }) {
-                                    HStack {
-                                        Text(language.rawValue)
-                                            .font(.system(size: 16))
-                                            .foregroundColor(.black)
-                                        
-                                        Spacer()
-                                        
-                                        if appState.selectedLanguage == language {
-                                            Image(systemName: "checkmark")
-                                                .foregroundColor(.appPrimary)
-                                        }
-                                    }
-                                    .padding(.horizontal, 16)
-                                    .padding(.vertical, 14)
-                                    .contentShape(Rectangle())
-                                }
+                        Divider()
+                            .padding(.leading, 16)
+                            .background(Color.white)
+                        
+                        // Change Password button
+                        Button(action: {
+                            showingPasswordSheet = true
+                        }) {
+                            HStack {
+                                Image(systemName: "lock.fill")
+                                    .foregroundColor(.blue)
+                                    .font(.system(size: 18))
                                 
-                                if language != AppLanguage.allCases.last {
-                                    Divider()
-                                        .padding(.leading, 16)
-                                        .background(Color.white)
-                                }
+                                Text("Change Password")
+                                    .font(.system(size: 16))
+                                    .foregroundColor(.black)
+                                
+                                Spacer()
+                                
+                                Image(systemName: "chevron.right")
+                                    .font(.system(size: 14))
+                                    .foregroundColor(.gray)
                             }
-                        }
-                        .background(Color.white)
-                        .cornerRadius(12)
-                        .padding(.horizontal)
-                    }
-                    
-                    // Account settings
-                    VStack(alignment: .leading, spacing: 12) {
-                        Text("ACCOUNT")
-                            .font(.footnote)
-                            .fontWeight(.medium)
-                            .foregroundColor(.gray)
-                            .padding(.leading, 16)
-                        
-                        if let user = appState.userManager.currentUser {
-                            if isEditingProfile {
-                                // Edit mode
-                                VStack(spacing: 16) {
-                                    TextField("Name", text: $name)
-                                        .padding()
-                                        .background(Color(UIColor.systemGray6))
-                                        .cornerRadius(8)
-                                        .foregroundColor(.black)
-                                    
-                                    TextField("Email", text: $email)
-                                        .padding()
-                                        .background(Color(UIColor.systemGray6))
-                                        .cornerRadius(8)
-                                        .foregroundColor(.black)
-                                    
-                                    HStack {
-                                        Text("Date of Birth")
-                                            .foregroundColor(.black)
-                                        
-                                        Spacer()
-                                        
-                                        Text(dateFormatter.string(from: dateOfBirth))
-                                            .foregroundColor(.appPrimary)
-                                    }
-                                    .padding()
-                                    .background(Color(UIColor.systemGray6))
-                                    .cornerRadius(8)
-                                    .onTapGesture {
-                                        showingDatePicker = true
-                                    }
-                                    
-                                    HStack {
-                                        Text("Role")
-                                            .foregroundColor(.black)
-                                        
-                                        Spacer()
-                                        
-                                        Menu {
-                                            ForEach(UserRole.allCases) { role in
-                                                Button(role.rawValue) {
-                                                    self.role = role
-                                                }
-                                            }
-                                        } label: {
-                                            HStack {
-                                                Text(role.rawValue)
-                                                    .foregroundColor(.appPrimary)
-                                                Image(systemName: "chevron.up.chevron.down")
-                                                    .foregroundColor(.appPrimary)
-                                                    .font(.system(size: 12))
-                                            }
-                                        }
-                                    }
-                                    .padding()
-                                    .background(Color(UIColor.systemGray6))
-                                    .cornerRadius(8)
-                                    
-                                    HStack {
-                                        Button("Save") {
-                                            isSaving = true
-                                            // Add a slight delay to show loading state
-                                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-                                                saveUserProfile()
-                                                isSaving = false
-                                                isEditingProfile = false
-                                            }
-                                        }
-                                        .buttonStyle(PrimaryButtonStyle())
-                                        .disabled(isSaving)
-                                        
-                                        Button("Cancel") {
-                                            resetForm(with: user)
-                                            isEditingProfile = false
-                                        }
-                                        .buttonStyle(SecondaryButtonStyle())
-                                        .disabled(isSaving)
-                                    }
-                                }
-                                .padding()
-                                .background(Color.white)
-                                .cornerRadius(12)
-                                .padding(.horizontal)
-                            } else {
-                                // View mode in white card background
-                                VStack(spacing: 0) {
-                                    // Edit Profile button
-                                    Button(action: {
-                                        resetForm(with: user)
-                                        isEditingProfile = true
-                                    }) {
-                                        HStack {
-                                            Image(systemName: "person.fill")
-                                                .foregroundColor(.blue)
-                                                .font(.system(size: 18))
-                                            
-                                            Text("Edit Profile")
-                                                .font(.system(size: 16))
-                                                .foregroundColor(.black)
-                                            
-                                            Spacer()
-                                            
-                                            Image(systemName: "chevron.right")
-                                                .font(.system(size: 14))
-                                                .foregroundColor(.gray)
-                                        }
-                                        .padding(.horizontal, 16)
-                                        .padding(.vertical, 14)
-                                        .contentShape(Rectangle())
-                                    }
-                                    
-                                    Divider()
-                                        .padding(.leading, 16)
-                                        .background(Color.white)
-                                    
-                                    // Change Password button
-                                    Button(action: {
-                                        showingPasswordSheet = true
-                                    }) {
-                                        HStack {
-                                            Image(systemName: "lock.fill")
-                                                .foregroundColor(.blue)
-                                                .font(.system(size: 18))
-                                            
-                                            Text("Change Password")
-                                                .font(.system(size: 16))
-                                                .foregroundColor(.black)
-                                            
-                                            Spacer()
-                                            
-                                            Image(systemName: "chevron.right")
-                                                .font(.system(size: 14))
-                                                .foregroundColor(.gray)
-                                        }
-                                        .padding(.horizontal, 16)
-                                        .padding(.vertical, 14)
-                                        .contentShape(Rectangle())
-                                    }
-                                }
-                                .background(Color.white)
-                                .cornerRadius(12)
-                                .padding(.horizontal)
-                            }
+                            .padding(.horizontal, 16)
+                            .padding(.vertical, 14)
+                            .contentShape(Rectangle())
                         }
                     }
-                    
-                    // Logout button
-                    Button(action: {
-                        showingLogoutAlert = true
-                    }) {
-                        Text("Log Out")
-                            .font(.system(size: 16, weight: .medium))
-                            .foregroundColor(.appPrimary)
-                            .frame(maxWidth: .infinity)
-                            .padding(.vertical, 16)
-                            .background(Color.white)
-                            .cornerRadius(12)
-                    }
+                    .background(Color.white)
+                    .cornerRadius(12)
                     .padding(.horizontal)
-                    
-                    #if DEBUG
-                    // Debug option to reset user data (only in debug mode)
-                    Button(action: {
-                        // Reset to factory defaults
-                        appState.userManager.resetUserData()
-                    }) {
-                        Text("Reset User Data (Debug)")
-                            .font(.system(size: 14))
-                            .foregroundColor(.gray)
-                            .padding(.top, 20)
-                    }
-                    #endif
-                    
-                    Spacer()
                 }
-                .padding(.top, 16)
             }
-            .navigationTitle("Settings")
-            .toolbarBackground(Color.appBackground, for: .navigationBar)
-            .toolbarBackground(.visible, for: .navigationBar)
-            .toolbarColorScheme(.dark, for: .navigationBar)
-            .withLoading(isLoading: isSaving, message: "Saving profile...")
         }
-        .sheet(isPresented: $showingPasswordSheet) {
-            PasswordChangeView()
-                .environmentObject(appState)
-        }
-        .sheet(isPresented: $showingDatePicker) {
-            DatePickerView(date: $dateOfBirth)
-        }
-        .alert("Log Out", isPresented: $showingLogoutAlert) {
-            Button("Cancel", role: .cancel) { }
-            Button("Log Out", role: .destructive) {
-                appState.userManager.logout()
+    }
+    
+    private var otherOptionsSection: some View {
+        VStack {
+            // Logout button
+            Button(action: {
+                showingLogoutAlert = true
+            }) {
+                Text("Log Out")
+                    .font(.system(size: 16, weight: .medium))
+                    .foregroundColor(.appPrimary)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 16)
+                    .background(Color.white)
+                    .cornerRadius(12)
             }
-        } message: {
-            Text("Are you sure you want to log out?")
-        }
-        .alert("Profile Updated", isPresented: $showSaveSuccessAlert) {
-            Button("OK", role: .cancel) { }
-        } message: {
-            Text("Your profile has been updated successfully.")
-        }
-        .alert("Error", isPresented: $showSaveErrorAlert) {
-            Button("OK", role: .cancel) { }
-        } message: {
-            Text(errorMessage)
+            .padding(.horizontal)
+            
+            #if DEBUG
+            // Debug option to reset user data (only in debug mode)
+            Button(action: {
+                // Reset to factory defaults
+                resetUserData()
+            }) {
+                Text("Reset User Data (Debug)")
+                    .font(.system(size: 14))
+                    .foregroundColor(.gray)
+                    .padding(.top, 20)
+            }
+            #endif
         }
     }
     
@@ -333,20 +348,25 @@ struct ConfigurationView: View {
     }
     
     private func saveUserProfile() {
-        // Validate user input
-        if name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+        // Validation
+        if name.isEmpty {
             errorMessage = "Name cannot be empty."
             showSaveErrorAlert = true
             return
         }
         
-        if email.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !isValidEmail(email) {
+        if email.isEmpty {
+            errorMessage = "Email cannot be empty."
+            showSaveErrorAlert = true
+            return
+        }
+        
+        if !isValidEmail(email) {
             errorMessage = "Please enter a valid email address."
             showSaveErrorAlert = true
             return
         }
         
-        // Check if user is too young (e.g., must be at least 13 years old)
         let calendar = Calendar.current
         let today = Date()
         let minimumAge = 13
@@ -359,21 +379,14 @@ struct ConfigurationView: View {
         }
         
         // If validation passes, update the profile
-        // First update name, date of birth and role
-        let success = appState.userManager.updateUserProfile(
+        let success = appState.getUserManager().updateProfile(
             name: name,
+            email: email,
             dateOfBirth: dateOfBirth,
             role: role
         )
         
-        // Check if email has changed and update if needed
-        let currentEmail = appState.userManager.currentUser?.email ?? ""
-        var emailUpdateSuccess = true
-        if email != currentEmail {
-            emailUpdateSuccess = appState.userManager.updateUserEmail(to: email)
-        }
-        
-        if success && emailUpdateSuccess {
+        if success {
             showSaveSuccessAlert = true
         } else {
             errorMessage = "Failed to update profile. Please try again."
@@ -387,6 +400,12 @@ struct ConfigurationView: View {
         let emailPredicate = NSPredicate(format: "SELF MATCHES %@", emailRegex)
         return emailPredicate.evaluate(with: email)
     }
+    
+    // Helper method for resetting user data in debug mode
+    private func resetUserData() {
+        appState.getUserManager().logout()
+        // Any additional reset logic would go here
+    }
 }
 
 struct PasswordChangeView: View {
@@ -399,6 +418,15 @@ struct PasswordChangeView: View {
     @State private var showingSuccessAlert = false
     @State private var errorMessage = ""
     @State private var isChanging = false
+    
+    // Service references from ServiceLocator
+    private var authService: AuthenticationServiceProtocol? {
+        ServiceLocator.shared.resolve(AuthenticationServiceProtocol.self)
+    }
+    
+    private var userManager: UserManagerProtocol? {
+        ServiceLocator.shared.resolve(UserManagerProtocol.self)
+    }
     
     var body: some View {
         NavigationStack {
@@ -476,7 +504,7 @@ struct PasswordChangeView: View {
         }
         
         // Clear any previous errors in the authentication service
-        appState.authService.clearError()
+        authService?.clearError()
         
         // Set loading state
         isChanging = true
@@ -493,7 +521,7 @@ struct PasswordChangeView: View {
     // Helper method to perform password change asynchronously
     private func startPasswordChangeProcess(currentPassword: String, newPassword: String) {
         // Get the current user's email
-        guard let email = appState.userManager.currentUser?.email else {
+        guard let email = userManager?.currentUser?.email else {
             errorMessage = "Cannot identify current user. Please try again later."
             showingErrorAlert = true
             isChanging = false
@@ -503,7 +531,16 @@ struct PasswordChangeView: View {
         // Using runAsync helper instead of ConcurrencyTask
         runAsync {
             // Use the reset password functionality instead
-            let result = await self.appState.authService.resetPassword(for: email)
+            guard let authService = self.authService else {
+                await runOnMainActor {
+                    self.errorMessage = "Authentication service not available"
+                    self.showingErrorAlert = true
+                    self.isChanging = false
+                }
+                return
+            }
+            
+            let result = await authService.resetPassword(for: email)
             
             await runOnMainActor {
                 isChanging = false

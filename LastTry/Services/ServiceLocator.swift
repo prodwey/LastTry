@@ -81,6 +81,11 @@ class ServiceLocator {
         register(ErrorHandlingService.shared, for: ErrorHandlingServiceProtocol.self)
         register(ErrorHandlingService.shared, for: ErrorHandlingService.self)
         
+        // Register managers under their protocol interfaces
+        register(UserManager.shared, for: UserManagerProtocol.self)
+        register(TaskManager.shared, for: TaskManagerProtocol.self)
+        register(NewsManager.shared, for: NewsManagerProtocol.self)
+        
         // Mark as initialized
         isInitialized = true
         

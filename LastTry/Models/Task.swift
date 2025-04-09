@@ -193,16 +193,43 @@ class TaskDataManager: CoreDataManaging {
     }
 }
 
-class TaskManager: ObservableObject {
+class TaskManager: ObservableObject, TaskManagerProtocol {
+    // MARK: - Singleton
+    
+    /// Shared instance for global access
+    static let shared = TaskManager()
+    
+    // MARK: - Published Properties
+    
     @Published var tasks: [Task] = []
     @Published var taskError: TaskError? = nil
     
-    // Reference to CoreData manager
-    private let coreDataManager = CoreDataManager.shared
-    // Reference to the task data manager
-    private lazy var taskDataManager = TaskDataManager()
+    // MARK: - Private Properties
     
-    // Load all tasks from CoreData
+    // Service dependencies
+    private let coreDataManager = CoreDataManager.shared
+    private lazy var taskDataManager = TaskDataManager()
+    private let errorService: ErrorHandlingServiceProtocol
+    
+    // MARK: - Initialization
+    
+    /// Private initializer for singleton pattern
+    private init() {
+        print("TaskManager: Initializing shared instance")
+        self.errorService = ServiceLocator.shared.resolve(ErrorHandlingServiceProtocol.self) ?? ErrorHandlingService.shared
+        loadTasks()
+    }
+    
+    /// Dependency injection initializer for testing
+    init(errorService: ErrorHandlingServiceProtocol) {
+        print("TaskManager: Initializing with custom dependencies")
+        self.errorService = errorService
+        // Don't automatically load tasks in test environment
+    }
+    
+    // MARK: - Public Methods
+    
+    /// Load all tasks from CoreData
     func loadTasks() {
         let context = coreDataManager.viewContext
         
@@ -222,11 +249,13 @@ class TaskManager: ObservableObject {
                 self.tasks = loadedTasks
             }
         case .failure(let error):
-            print("Error loading tasks from CoreData: \(error.localizedDescription)")
+            print("TaskManager: Error loading tasks from CoreData: \(error.localizedDescription)")
+            errorService.reportError(error)
             taskError = .failedToLoad("Failed to load tasks: \(error.localizedDescription)")
         }
     }
     
+    /// Add a new task
     func addTask(title: String, description: String, priority: TaskPriority, 
                 dueDate: Date?, assignedTo: String?, createdBy: String) -> Bool {
         // Validate inputs
@@ -270,11 +299,13 @@ class TaskManager: ObservableObject {
             }
             return true
         case .failure(let error):
+            errorService.reportError(error)
             taskError = .failedToSave("Failed to save task: \(error.localizedDescription)")
             return false
         }
     }
     
+    /// Toggle the completion status of a task
     func toggleTaskCompletion(taskId: String) -> Bool {
         guard let index = tasks.firstIndex(where: { $0.id == taskId }) else {
             taskError = .taskNotFound("Could not find task to toggle completion")
@@ -300,11 +331,13 @@ class TaskManager: ObservableObject {
             }
             return true
         case .failure(let error):
+            errorService.reportError(error)
             taskError = .failedToUpdate("Failed to update task completion status: \(error.localizedDescription)")
             return false
         }
     }
     
+    /// Remove a task
     func removeTask(taskId: String) -> Bool {
         // Check if task exists
         guard tasks.contains(where: { $0.id == taskId }) else {
@@ -324,11 +357,13 @@ class TaskManager: ObservableObject {
             }
             return true
         case .failure(let error):
+            errorService.reportError(error)
             taskError = .failedToDelete("Failed to delete task: \(error.localizedDescription)")
             return false
         }
     }
     
+    /// Update an existing task
     func updateTask(task: Task) -> Bool {
         // Check if task exists
         guard let index = tasks.firstIndex(where: { $0.id == task.id }) else {
@@ -352,11 +387,13 @@ class TaskManager: ObservableObject {
             }
             return true
         case .failure(let error):
+            errorService.reportError(error)
             taskError = .failedToUpdate("Failed to update task: \(error.localizedDescription)")
             return false
         }
     }
     
+    /// Get tasks sorted by priority
     func sortedByPriority() -> [Task] {
         return tasks.sorted { 
             if $0.isCompleted && !$1.isCompleted {
@@ -373,8 +410,21 @@ class TaskManager: ObservableObject {
         }
     }
     
+    /// Get tasks assigned to a specific user
     func tasksAssignedTo(userId: String) -> [Task] {
         return tasks.filter { $0.assignedTo == userId }
+    }
+    
+    // MARK: - Protocol Conformance Methods
+    
+    /// Set the tasks collection directly
+    func setTasks(_ tasks: [Task]) {
+        self.tasks = tasks
+    }
+    
+    /// Set the task error directly
+    func setTaskError(_ error: TaskError?) {
+        self.taskError = error
     }
     
     // Helper method to clear errors
