@@ -35,6 +35,17 @@ struct LastTryApp: App {
                 .onReceive(NotificationCenter.default.publisher(for: UIApplication.willResignActiveNotification)) { _ in
                     // Save CoreData context when app moves to background
                     CoreDataManager.shared.saveContext()
+                    
+                    // Optimize memory usage when app goes to background
+                    appState.prepareForBackground()
+                }
+                .onReceive(NotificationCenter.default.publisher(for: UIApplication.didBecomeActiveNotification)) { _ in
+                    // Reload data when app becomes active again
+                    appState.prepareForForeground()
+                }
+                .onReceive(NotificationCenter.default.publisher(for: UIApplication.didReceiveMemoryWarningNotification)) { _ in
+                    // Clear caches when system issues memory warning
+                    appState.clearCaches()
                 }
         }
     }

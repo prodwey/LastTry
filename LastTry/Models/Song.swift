@@ -316,6 +316,9 @@ class SongManager: ObservableObject {
     private let songDataManager = SongDataManager()
     // Reference to our file persistence helper
     private let filePersistenceHelper = FilePersistenceHelper.shared
+    // Reference to caching services
+    private let songCacheService = SongCacheService.shared
+    private let audioCacheService = AudioCacheService.shared
     
     // Listen for file upload status updates
     private var cancellables = Set<AnyCancellable>()
@@ -408,6 +411,9 @@ class SongManager: ObservableObject {
             // First add the song to the array with the original URL
             DispatchQueue.main.async {
                 self.songs.append(newSong)
+                
+                // Add to cache immediately for responsive UI
+                self.songCacheService.cacheSong(newSong)
             }
             
             // Begin transaction
@@ -448,6 +454,9 @@ class SongManager: ObservableObject {
                                 
                                 // Remove the song from the array if upload failed
                                 self?.songs.removeAll { $0.id == songId }
+                                
+                                // Remove from cache if upload failed
+                                self?.songCacheService.removeCachedSong(id: songId)
                             }
                         }
                     },
@@ -475,6 +484,9 @@ class SongManager: ObservableObject {
                             }
                         }
                         
+                        // Start caching the audio data in the background
+                        _ = self.audioCacheService.cacheAudioData(for: permanentURL)
+                        
                         // Now save to CoreData with the permanent URL
                         let result = self.songDataManager.performBackgroundTaskWithResult { context in
                             return self.songDataManager.saveWithFileReferences(
@@ -487,6 +499,9 @@ class SongManager: ObservableObject {
                             // Update the song in our published array
                             if let index = self.songs.firstIndex(where: { $0.id == songId }) {
                                 self.songs[index] = updatedSong
+                                
+                                // Update cache with the final song data
+                                self.songCacheService.cacheSong(updatedSong)
                             }
                             
                             // Handle any CoreData errors
@@ -514,9 +529,10 @@ class SongManager: ObservableObject {
             
             switch result {
             case .success(_):
-                // Add song to array
+                // Add song to array and cache
                 DispatchQueue.main.async {
                     self.songs.append(newSong)
+                    self.songCacheService.cacheSong(newSong)
                 }
                 return true
             case .failure(let error):
@@ -537,8 +553,18 @@ class SongManager: ObservableObject {
     }
     
     private func getAudioDuration(url: URL) -> TimeInterval? {
+        // Try to use cached data if available
+        if let cachedData = audioCacheService.getCachedAudioData(for: url) {
+            do {
+                let audioPlayer = try AVAudioPlayer(data: cachedData)
+                return audioPlayer.duration
+            } catch {
+                print("Error getting audio duration from cached data: \(error.localizedDescription)")
+            }
+        }
+        
+        // Fallback to direct file access
         do {
-            // Create audio player to get duration
             let audioPlayer = try AVAudioPlayer(contentsOf: url)
             return audioPlayer.duration
         } catch {
@@ -569,6 +595,12 @@ class SongManager: ObservableObject {
             let loadedSongs = songManager.createModels(from: entities)
             DispatchQueue.main.async {
                 self.songs = loadedSongs
+                // Cache the loaded songs for faster access later
+                self.songCacheService.cacheSongs(loadedSongs)
+                
+                // Prefetch audio for the first few songs to improve playback experience
+                let songsToCache = loadedSongs.prefix(3)
+                self.audioCacheService.prefetchAudio(for: Array(songsToCache))
             }
         case .failure(let error):
             print("Error loading songs from CoreData: \(error.localizedDescription)")
@@ -576,11 +608,17 @@ class SongManager: ObservableObject {
         }
     }
     
-    // Fetch songs for a specific session - updated to use Result
+    // Fetch songs for a specific session - updated to use Result and caching
     func loadSongsForSession(sessionId: String) -> [Song] {
         guard !sessionId.isEmpty else {
             songError = .failedToLoad("Invalid session ID")
             return []
+        }
+        
+        // Check if songs for this session are already in songs array (and thus, in cache)
+        let cachedSessionSongs = songs.filter { $0.sessionId == sessionId }
+        if !cachedSessionSongs.isEmpty {
+            return cachedSessionSongs
         }
         
         let context = coreDataManager.viewContext
@@ -597,7 +635,17 @@ class SongManager: ObservableObject {
         
         switch result {
         case .success(let entities):
-            return songManager.createModels(from: entities)
+            let sessionSongs = songManager.createModels(from: entities)
+            
+            // Cache the loaded songs
+            songCacheService.cacheSongs(sessionSongs)
+            
+            // Prefetch audio data for playback readiness if there aren't too many songs
+            if sessionSongs.count <= 5 {
+                audioCacheService.prefetchAudio(for: sessionSongs)
+            }
+            
+            return sessionSongs
         case .failure(let error):
             print("Error loading songs for session: \(error.localizedDescription)")
             songError = .failedToLoad("Failed to load songs for session: \(error.localizedDescription)")
@@ -608,7 +656,7 @@ class SongManager: ObservableObject {
     // Delete a song - updated to use Result and also delete the file
     func deleteSong(withID id: String) -> Bool {
         // First, find the song to get its format and URL
-        guard let songToDelete = songs.first(where: { $0.id == id }) else {
+        guard let songToDelete = getSong(withID: id) else {
             songError = .songNotFound("Song not found for deletion")
             return false
         }
@@ -625,6 +673,13 @@ class SongManager: ObservableObject {
             DispatchQueue.main.async {
                 self.songs.removeAll { $0.id == id }
             }
+            
+            // Remove from caches
+            songCacheService.removeCachedSong(id: id)
+            if let fileURL = songToDelete.fileURL {
+                audioCacheService.removeCachedAudio(for: fileURL)
+            }
+            
             return true
         case .failure(let error):
             songError = .failedToDelete("Failed to delete song: \(error.localizedDescription)")
@@ -632,9 +687,42 @@ class SongManager: ObservableObject {
         }
     }
     
-    // Get a song by ID
+    // Get a song by ID - now with caching support
     func getSong(withID id: String) -> Song? {
-        return songs.first { $0.id == id }
+        // Check cache first
+        if let cachedSong = songCacheService.getCachedSong(id: id) {
+            return cachedSong
+        }
+        
+        // Fall back to array search
+        let song = songs.first { $0.id == id }
+        
+        // If found, add to cache for next time
+        if let song = song {
+            songCacheService.cacheSong(song)
+        }
+        
+        return song
+    }
+    
+    // Get an audio player for a song, utilizing the cache when possible
+    func getAudioPlayer(for song: Song) throws -> AVAudioPlayer {
+        do {
+            // Use audio cache service to get player
+            let player = try audioCacheService.audioPlayer(for: song)
+            return player
+        } catch {
+            // If anything goes wrong, fall back to direct file access
+            guard let fileURL = song.fileURL else {
+                throw SongError.fileNotFound
+            }
+            
+            do {
+                return try AVAudioPlayer(contentsOf: fileURL)
+            } catch {
+                throw SongError.playbackError("Failed to create audio player: \(error.localizedDescription)")
+            }
+        }
     }
     
     // Validate all songs and ensure their files exist
@@ -691,5 +779,18 @@ class SongManager: ObservableObject {
             
             return false
         }
+    }
+    
+    // MARK: - Cache Management
+    
+    /// Preload audio for a list of songs
+    func preloadAudio(for songs: [Song]) {
+        audioCacheService.prefetchAudio(for: songs)
+    }
+    
+    /// Clear all song and audio caches
+    func clearCaches() {
+        songCacheService.cacheSongs(songs) // Refresh the metadata cache with current state
+        CacheManager.shared.audioDataCache.clearCache() // Clear audio data
     }
 } 

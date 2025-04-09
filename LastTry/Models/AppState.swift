@@ -43,6 +43,10 @@ class AppState: ObservableObject {
     @Published var currentPlaybackPosition: TimeInterval = 0
     @Published var audioError: AudioError? = nil
     
+    // Resource monitoring
+    @Published var memoryStatus: ResourceThreshold = .normal
+    @Published var diskStatus: ResourceThreshold = .normal
+    
     private let coreDataManager = CoreDataManager.shared
     private var cancellables = Set<AnyCancellable>()
     
@@ -63,6 +67,12 @@ class AppState: ObservableObject {
         
         // Fetch news data
         newsManager.fetchNews()
+        
+        // Start monitoring resources
+        setupResourceMonitoring()
+        
+        // Load initial data
+        loadInitialData()
     }
     
     // MARK: - Auth State Management
@@ -346,5 +356,214 @@ class AppState: ObservableObject {
     func switchLanguage(to language: AppLanguage) {
         self.selectedLanguage = language
         // In a real app, this would update all text in the app
+    }
+    
+    private func setupResourceMonitoring() {
+        // Subscribe to resource notifications
+        ResourceMonitor.shared.resourcePublisher
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] notification in
+                guard let self = self else { return }
+                
+                switch notification.type {
+                case .memory:
+                    self.memoryStatus = notification.threshold
+                    
+                    // Log memory warnings in debug builds
+                    #if DEBUG
+                    if notification.threshold != .normal {
+                        print("Memory usage at \(Int(notification.usagePercentage))% - \(notification.threshold)")
+                    }
+                    #endif
+                    
+                case .disk:
+                    self.diskStatus = notification.threshold
+                    
+                    // Log disk warnings in debug builds
+                    #if DEBUG
+                    if notification.threshold != .normal {
+                        print("Disk usage at \(Int(notification.usagePercentage))% - \(notification.threshold)")
+                    }
+                    #endif
+                }
+                
+                // If we're in a critical resource state, reduce memory pressure
+                if notification.threshold == .critical {
+                    self.handleResourcePressure(type: notification.type)
+                }
+            }
+            .store(in: &cancellables)
+    }
+    
+    private func handleResourcePressure(type: ResourceType) {
+        // Handle critical resource pressure
+        switch type {
+        case .memory:
+            // Clear non-essential caches
+            CacheManager.shared.audioDataCache.clearCache()
+            CacheManager.shared.imageCache.clearCache()
+            
+        case .disk:
+            // Clear all caches to free up disk space
+            CacheManager.shared.clearAllCaches()
+        }
+    }
+    
+    private func loadInitialData() {
+        // Load user data
+        userManager.loadCurrentUser()
+        
+        // For demo, populate with some data if needed
+        if CoreDataManager.shared.isFirstLaunch {
+            populateDemoData()
+            CoreDataManager.shared.markMigrationAsComplete()
+        }
+    }
+    
+    // MARK: - Demo Functionality
+    
+    func populateDemoData() {
+        // Create a demo user
+        let demoUser = User(
+            id: UUID().uuidString,
+            name: "Demo User",
+            email: "demo@example.com",
+            dateOfBirth: Calendar.current.date(byAdding: .year, value: -30, to: Date()),
+            role: .producer
+        )
+        
+        // Save the user to CoreData
+        let coreDataManager = CoreDataManager.shared
+        coreDataManager.performBackgroundTask { context in
+            let _ = demoUser.toEntity(in: context)
+            
+            // Update app state on main thread
+            DispatchQueue.main.async {
+                self.userManager.currentUser = demoUser
+            }
+        }
+        
+        // Create demo sessions
+        let pastDate1 = Calendar.current.date(byAdding: .day, value: -2, to: Date())!
+        let pastDate2 = Calendar.current.date(byAdding: .day, value: -7, to: Date())!
+        let futureDate = Calendar.current.date(byAdding: .day, value: 3, to: Date())!
+        
+        let pastSession1 = Session(
+            id: UUID().uuidString,
+            studio: .studioA,
+            mainProducer: demoUser.name,
+            additionalProducers: ["Maria Silva"],
+            singers: ["Ana Rodrigues", "Carlos Santos"],
+            date: pastDate1,
+            duration: 180, // 3 hours
+            songs: nil
+        )
+        
+        let pastSession2 = Session(
+            id: UUID().uuidString,
+            studio: .studioB,
+            mainProducer: demoUser.name,
+            additionalProducers: ["João Costa"],
+            singers: ["Mariana Ferreira"],
+            date: pastDate2,
+            duration: 120, // 2 hours
+            songs: nil
+        )
+        
+        let futureSession = Session(
+            id: UUID().uuidString,
+            studio: .studioC,
+            mainProducer: demoUser.name,
+            additionalProducers: ["Pedro Santos"],
+            singers: ["Luiza Oliveira", "Thiago Almeida"],
+            date: futureDate,
+            duration: 240, // 4 hours
+            songs: nil
+        )
+        
+        // Save sessions to CoreData
+        coreDataManager.performBackgroundTask { context in
+            let _ = pastSession1.toEntity(in: context)
+            let _ = pastSession2.toEntity(in: context)
+            let _ = futureSession.toEntity(in: context)
+            
+            // Update sessions array on main thread
+            DispatchQueue.main.async {
+                self.sessionManager.sessions = [pastSession1, pastSession2, futureSession]
+            }
+        }
+        
+        // Add demo tasks
+        let task1 = Task(
+            id: UUID().uuidString,
+            title: "Mix final version of 'Summer Night'",
+            description: "Complete the final mix for Ana's new song 'Summer Night'",
+            priority: .high,
+            createdAt: Date().addingTimeInterval(-86400), // 1 day ago
+            dueDate: Calendar.current.date(byAdding: .day, value: 2, to: Date()),
+            assignedTo: demoUser.id,
+            createdBy: demoUser.id,
+            isCompleted: false
+        )
+        
+        let task2 = Task(
+            id: UUID().uuidString,
+            title: "Schedule mastering session",
+            description: "Book time with mastering engineer for the new album",
+            priority: .medium,
+            createdAt: Date().addingTimeInterval(-172800), // 2 days ago
+            dueDate: Calendar.current.date(byAdding: .day, value: 7, to: Date()),
+            assignedTo: demoUser.id,
+            createdBy: demoUser.id,
+            isCompleted: false
+        )
+        
+        let task3 = Task(
+            id: UUID().uuidString,
+            title: "Call equipment rental",
+            description: "Reserve additional microphones for next week's session",
+            priority: .low,
+            createdAt: Date().addingTimeInterval(-43200), // 12 hours ago
+            dueDate: Calendar.current.date(byAdding: .day, value: 5, to: Date()),
+            assignedTo: demoUser.id,
+            createdBy: demoUser.id,
+            isCompleted: true
+        )
+        
+        // Save tasks to CoreData
+        coreDataManager.performBackgroundTask { context in
+            let _ = task1.toEntity(in: context)
+            let _ = task2.toEntity(in: context)
+            let _ = task3.toEntity(in: context)
+            
+            // Update tasks array on main thread
+            DispatchQueue.main.async {
+                self.taskManager.tasks = [task1, task2, task3]
+            }
+        }
+        
+        // In a real app, we might add demo songs too, but they require audio files
+        // which are not easily created programmatically
+    }
+    
+    // MARK: - Memory Management
+    
+    /// Clear caches to reduce memory pressure
+    func clearCaches() {
+        CacheManager.shared.clearAllCaches()
+    }
+    
+    /// Optimize memory usage when the app is going to background
+    func prepareForBackground() {
+        // Clear audio cache when app goes to background to reduce memory usage
+        CacheManager.shared.audioDataCache.clearCache()
+    }
+    
+    /// Reload essentials when the app returns to foreground
+    func prepareForForeground() {
+        // Refresh data that might have changed
+        songManager.loadSongs()
+        sessionManager.loadSessions()
+        taskManager.loadTasks()
     }
 } 
