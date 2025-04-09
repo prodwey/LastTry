@@ -328,20 +328,22 @@ class SongManager: ObservableObject {
         filePersistenceHelper.uploadStatus
             .receive(on: DispatchQueue.main)
             .sink { [weak self] status in
+                guard let self = self else { return }
+                
                 switch status {
                 case .failed(_, let error):
                     // Convert to SongError if needed
                     if let fileError = error as? FileStorageError {
                         switch fileError {
                         case .fileNotFound:
-                            self?.songError = .fileNotFound
+                            self.songError = .fileNotFound
                         case .invalidFileFormat(let message):
-                            self?.songError = .invalidFileFormat(message)
+                            self.songError = .invalidFileFormat(message)
                         default:
-                            self?.songError = .fileError(fileError.localizedDescription)
+                            self.songError = .fileError(fileError.localizedDescription)
                         }
                     } else {
-                        self?.songError = .fileError(error.localizedDescription)
+                        self.songError = .fileError(error.localizedDescription)
                     }
                 case .uploading, .completed:
                     // These are handled by specific methods
@@ -409,7 +411,8 @@ class SongManager: ObservableObject {
         // If it's a file URL, we need to permanently store the file
         if fileURL.isFileURL {
             // First add the song to the array with the original URL
-            DispatchQueue.main.async {
+            DispatchQueue.main.async { [weak self] in
+                guard let self = self else { return }
                 self.songs.append(newSong)
                 
                 // Add to cache immediately for responsive UI
@@ -438,25 +441,26 @@ class SongManager: ObservableObject {
                             )
                             
                             DispatchQueue.main.async {
+                                guard let self = self else { return }
                                 // Set the error
                                 if let fileError = error as? FileStorageError {
                                     switch fileError {
                                     case .fileNotFound:
-                                        self?.songError = .fileNotFound
+                                        self.songError = .fileNotFound
                                     case .invalidFileFormat(let message):
-                                        self?.songError = .invalidFileFormat(message)
+                                        self.songError = .invalidFileFormat(message)
                                     default:
-                                        self?.songError = .fileError(fileError.localizedDescription)
+                                        self.songError = .fileError(fileError.localizedDescription)
                                     }
                                 } else {
-                                    self?.songError = .fileError(error.localizedDescription)
+                                    self.songError = .fileError(error.localizedDescription)
                                 }
                                 
                                 // Remove the song from the array if upload failed
-                                self?.songs.removeAll { $0.id == songId }
+                                self.songs.removeAll { $0.id == songId }
                                 
                                 // Remove from cache if upload failed
-                                self?.songCacheService.removeCachedSong(id: songId)
+                                self.songCacheService.removeCachedSong(id: songId)
                             }
                         }
                     },
@@ -488,14 +492,16 @@ class SongManager: ObservableObject {
                         _ = self.audioCacheService.cacheAudioData(for: permanentURL)
                         
                         // Now save to CoreData with the permanent URL
-                        let result = self.songDataManager.performBackgroundTaskWithResult { context in
+                        let result = self.songDataManager.performBackgroundTaskWithResult { [weak self] context -> Result<SongEntity, Error> in
+                            guard let self = self else { return .failure(SongError.failedToSave("Self was deallocated")) }
                             return self.songDataManager.saveWithFileReferences(
                                 model: updatedSong,
                                 in: context
                             ).mapError { $0 as Error }
                         }
                         
-                        DispatchQueue.main.async {
+                        DispatchQueue.main.async { [weak self] in
+                            guard let self = self else { return }
                             // Update the song in our published array
                             if let index = self.songs.firstIndex(where: { $0.id == songId }) {
                                 self.songs[index] = updatedSong
@@ -520,7 +526,8 @@ class SongManager: ObservableObject {
             return true
         } else {
             // For non-file URLs (e.g. remote URLs), just save directly
-            let result = songDataManager.performBackgroundTaskWithResult { context in
+            let result = songDataManager.performBackgroundTaskWithResult { [weak self] context -> Result<SongEntity, Error> in
+                guard let self = self else { return .failure(SongError.failedToSave("Self was deallocated")) }
                 return self.songDataManager.saveWithFileReferences(
                     model: newSong,
                     in: context
@@ -530,7 +537,8 @@ class SongManager: ObservableObject {
             switch result {
             case .success(_):
                 // Add song to array and cache
-                DispatchQueue.main.async {
+                DispatchQueue.main.async { [weak self] in
+                    guard let self = self else { return }
                     self.songs.append(newSong)
                     self.songCacheService.cacheSong(newSong)
                 }
@@ -593,7 +601,8 @@ class SongManager: ObservableObject {
         switch result {
         case .success(let entities):
             let loadedSongs = songManager.createModels(from: entities)
-            DispatchQueue.main.async {
+            DispatchQueue.main.async { [weak self] in
+                guard let self = self else { return }
                 self.songs = loadedSongs
                 // Cache the loaded songs for faster access later
                 self.songCacheService.cacheSongs(loadedSongs)
@@ -662,7 +671,8 @@ class SongManager: ObservableObject {
         }
         
         // Use our enhanced delete method which handles file deletion
-        let result = songDataManager.performBackgroundTaskWithResult { [self] context in
+        let result = songDataManager.performBackgroundTaskWithResult { [weak self] context -> Result<Void, Error> in
+            guard let self = self else { return .failure(SongError.failedToDelete("Self was deallocated")) }
             return self.songDataManager.deleteWithFileById(id: id, in: context)
                 .mapError { $0 as Error }
         }
@@ -670,7 +680,8 @@ class SongManager: ObservableObject {
         switch result {
         case .success(_):
             // Remove from the published array
-            DispatchQueue.main.async {
+            DispatchQueue.main.async { [weak self] in
+                guard let self = self else { return }
                 self.songs.removeAll { $0.id == id }
             }
             
@@ -728,7 +739,8 @@ class SongManager: ObservableObject {
     // Validate all songs and ensure their files exist
     func validateSongs() {
         // Use our enhanced validation method from CoreData
-        let result = songDataManager.performBackgroundTaskWithResult { [self] context in
+        let result = songDataManager.performBackgroundTaskWithResult { [weak self] context -> Result<[String: Bool], Error> in
+            guard let self = self else { return .failure(SongError.failedToLoad("Self was deallocated")) }
             return self.songDataManager.validateAllSongFiles(in: context)
                 .mapError { $0 as Error }
         }

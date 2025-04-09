@@ -197,7 +197,9 @@ struct MediaPicker: UIViewControllerRepresentable {
             }
             
             // Try to load file as audio
-            result.itemProvider.loadFileRepresentation(forTypeIdentifier: UTType.audio.identifier) { url, error in
+            result.itemProvider.loadFileRepresentation(forTypeIdentifier: UTType.audio.identifier) { [weak self] url, error in
+                guard let self = self else { return }
+                
                 if let error = error {
                     DispatchQueue.main.async {
                         self.parent.completion(.failure(error))
