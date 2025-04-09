@@ -4,6 +4,11 @@ import SwiftUI
 
 /// A service that provides centralized error handling and reporting for the entire application
 class ErrorHandlingService: ObservableObject, ErrorHandlingServiceProtocol {
+    // MARK: - Singleton
+    
+    /// Shared instance for global access
+    static let shared = ErrorHandlingService()
+    
     // MARK: - Published Properties
     
     /// The current error being displayed to the user
@@ -25,8 +30,10 @@ class ErrorHandlingService: ObservableObject, ErrorHandlingServiceProtocol {
     
     // MARK: - Initialization
     
-    init() {
+    /// Private initializer for singleton
+    private init() {
         setupSubscriptions()
+        print("ErrorHandlingService: Initialized shared instance")
     }
     
     // MARK: - Public Methods
@@ -165,39 +172,61 @@ class ErrorHandlingService: ObservableObject, ErrorHandlingServiceProtocol {
 extension View {
     /// Apply standard error handling to a view
     /// - Parameters:
-    ///   - errorService: The ErrorHandlingService to use
+    ///   - errorService: The ErrorHandlingServiceProtocol to use
     ///   - action: Optional action to perform when error is dismissed
     /// - Returns: View with error handling
-    func withErrorHandling(_ errorService: ErrorHandlingService, onDismiss action: (() -> Void)? = nil) -> some View {
+    func withErrorHandling(_ errorService: ErrorHandlingServiceProtocol, onDismiss action: (() -> Void)? = nil) -> some View {
         self.modifier(ErrorHandlingViewModifier(errorService: errorService, onDismiss: action))
+    }
+    
+    /// Apply standard error handling using the shared error service
+    /// - Parameter action: Optional action to perform when error is dismissed
+    /// - Returns: View with error handling
+    func withErrorHandling(onDismiss action: (() -> Void)? = nil) -> some View {
+        self.withErrorHandling(ErrorHandlingService.shared, onDismiss: action)
     }
 }
 
 // MARK: - View Modifier
 
 struct ErrorHandlingViewModifier: ViewModifier {
-    @ObservedObject var errorService: ErrorHandlingService
+    @ObservedObject private var concreteService: ErrorHandlingService
+    private var errorService: ErrorHandlingServiceProtocol
     var onDismiss: (() -> Void)?
+    
+    init(errorService: ErrorHandlingServiceProtocol, onDismiss: (() -> Void)? = nil) {
+        self.errorService = errorService
+        // We need to cast to concrete type for @ObservedObject to work
+        // This is safe if we're using the shared instance or a service registered with ServiceLocator
+        if let concreteService = errorService as? ErrorHandlingService {
+            self.concreteService = concreteService
+        } else {
+            // Fallback to shared instance if the provided service isn't the concrete type
+            print("Warning: ErrorHandlingService cast failed, using shared instance")
+            self.concreteService = ErrorHandlingService.shared
+        }
+        self.onDismiss = onDismiss
+    }
     
     func body(content: Content) -> some View {
         content
             .alert(
-                errorService.displayError?.message ?? "An error occurred",
-                isPresented: $errorService.isShowingError
+                concreteService.displayError?.message ?? "An error occurred",
+                isPresented: $concreteService.isShowingError
             ) {
                 Button("OK") {
                     errorService.clearError()
                     onDismiss?()
                 }
                 
-                if errorService.currentError?.isRecoverable == true {
+                if concreteService.currentError?.isRecoverable == true {
                     Button("Retry") {
                         errorService.clearError()
                         // Note: The retry action would need to be handled by the parent view
                     }
                 }
             } message: {
-                if let suggestion = errorService.displayError?.suggestion {
+                if let suggestion = concreteService.displayError?.suggestion {
                     Text(suggestion)
                 }
             }

@@ -325,13 +325,14 @@ class SongManager: ObservableObject {
     private let songCacheService = SongCacheService.shared
     private let audioCacheService = AudioCacheService.shared
     // Reference to error handling service (optional)
-    private weak var errorService: ErrorHandlingService?
+    private weak var errorService: ErrorHandlingServiceProtocol?
     
     // Listen for file upload status updates
     private var cancellables = Set<AnyCancellable>()
     
-    init(errorService: ErrorHandlingService? = nil) {
-        self.errorService = errorService
+    init(errorService: ErrorHandlingServiceProtocol? = nil) {
+        // Use provided error service or the shared instance
+        self.errorService = errorService ?? ErrorHandlingService.shared
         
         // Set up subscription to file upload status
         filePersistenceHelper.uploadStatus

@@ -65,12 +65,14 @@ class ServiceLocator {
         // This allows future code to depend on the abstractions rather than concrete implementations
         register(appState.authService, for: AuthenticationServiceProtocol.self)
         register(appState.audioService, for: AudioServiceProtocol.self)
-        register(appState.errorService, for: ErrorHandlingServiceProtocol.self)
+        
+        // For ErrorHandlingService, always use the shared instance
+        register(ErrorHandlingService.shared, for: ErrorHandlingServiceProtocol.self)
+        register(ErrorHandlingService.shared, for: ErrorHandlingService.self)
         
         // Also register the original service implementations for backward compatibility
         register(appState.authService, for: AuthenticationService.self)
         register(appState.audioService, for: AudioService.self)
-        register(appState.errorService, for: ErrorHandlingService.self)
         
         // Mark as initialized
         isInitialized = true
