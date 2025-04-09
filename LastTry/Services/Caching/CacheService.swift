@@ -144,7 +144,7 @@ class CacheService<Key: Hashable, Value> {
         }
         
         // Update size if tracking
-        if let sizeLimit = sizeLimit, let value = entry.value as? CacheSizable {
+        if let _ = sizeLimit, let value = entry.value as? CacheSizable {
             currentSize -= value.sizeInBytes
         }
         

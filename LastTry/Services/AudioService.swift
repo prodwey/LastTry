@@ -261,21 +261,57 @@ class AudioService: NSObject, ObservableObject {
         }
     }
     
-    // Safe wrapper method that avoids any issues with Task and trailing closures
+    // Safe wrapper method for handling duration loading
     private func loadAssetDurationWithTask(_ asset: AVAsset) {
-        if #available(iOS 16.0, *) {
-            // Create a background queue to load the duration without using Task
-            DispatchQueue.global(qos: .userInitiated).async { [weak self] in
-                guard let self = self else { return }
+        // Create a new function to contain all the processing
+        func processDuration() {
+            if #available(iOS 16.0, *) {
+                // Use the modern, non-deprecated API on iOS 16+
+                // Using detached task to avoid any syntax issues
+                let handler = { [weak self] in
+                    guard let self = self else { return }
+                    
+                    do {
+                        // Load the duration using the new async API
+                        let duration = try await asset.load(.duration)
+                        let seconds = duration.seconds
+                        
+                        if seconds > 0 {
+                            await MainActor.run {
+                                self.duration = seconds
+                            }
+                        }
+                    } catch {
+                        print("Error loading duration with modern API: \(error.localizedDescription)")
+                    }
+                }
                 
-                // Manual async loading of duration property
+                // Explicitly create the task with no trailing closure
+                @Sendable func asyncLoad() async {
+                    await handler()
+                }
+                
+                // Use a standard Task constructor instead of detached
+                DispatchQueue.main.async {
+                    // Create a task variable without using trailing closure syntax
+                    @MainActor func startAsyncTask() {
+                        _ = _Concurrency.Task { @MainActor in
+                            await asyncLoad()
+                        }
+                    }
+                    
+                    // Call the function directly
+                    startAsyncTask()
+                }
+            } else {
+                // For iOS 15 and earlier, use the legacy API
                 let semaphore = DispatchSemaphore(value: 0)
                 var durationValue: CMTime = .zero
                 var loadError: Error? = nil
                 
-                // Start the load operation
-                let loadingOperation = asset.loadValuesAsynchronously(forKeys: ["duration"]) {
-                    // Check if duration is loadable
+                // Swift doesn't have a good way to silence deprecated warnings for
+                // specific lines, so we'll need to accept the warnings here
+                asset.loadValuesAsynchronously(forKeys: ["duration"]) {
                     var error: NSError? = nil
                     let status = asset.statusOfValue(forKey: "duration", error: &error)
                     
@@ -289,11 +325,14 @@ class AudioService: NSObject, ObservableObject {
                 }
                 
                 // Wait for operation to complete (with timeout)
-                _ = semaphore.wait(timeout: .now() + 5.0)
+                let waitResult = semaphore.wait(timeout: .now() + 5.0)
+                if waitResult == .timedOut {
+                    print("Warning: Timed out waiting for audio metadata")
+                }
                 
                 // Process the results on main thread
                 if let error = loadError {
-                    print("Error loading duration: \(error.localizedDescription)")
+                    print("Error loading duration with legacy API: \(error.localizedDescription)")
                 } else {
                     let seconds = CMTimeGetSeconds(durationValue)
                     if seconds > 0 {
@@ -303,6 +342,11 @@ class AudioService: NSObject, ObservableObject {
                     }
                 }
             }
+        }
+        
+        // Call the function on a background queue
+        DispatchQueue.global(qos: .userInitiated).async {
+            processDuration()
         }
     }
 

@@ -152,8 +152,8 @@ class SessionDataManager: CoreDataManaging {
     
     func createModel(from entity: SessionEntity) -> Session {
         // Get the arrays directly, avoiding conditional downcasts
-        let producers = (entity.additionalProducers as? [String]) ?? []
-        let singers = (entity.singers as? [String]) ?? []
+        let producers = entity.additionalProducers as? [String] ?? []
+        let singers = entity.singers as? [String] ?? []
         
         return Session(
             id: entity.id ?? UUID().uuidString,

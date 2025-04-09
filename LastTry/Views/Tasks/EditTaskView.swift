@@ -160,7 +160,7 @@ struct EditTaskView: View {
                 }
                 .withLoading(isLoading: isUpdatingTask, message: "Updating task...")
                 .onChange(of: appState.taskManager.taskError) { _, newError in
-                    if let taskError = newError as? TaskError, let processedError = DetailedErrorProcessor.convertTaskError(taskError) {
+                    if let taskError = newError, let processedError = DetailedErrorProcessor.convertTaskError(taskError) {
                         errorMessage = processedError.message
                         showError = true
                         isUpdatingTask = false

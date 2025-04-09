@@ -103,7 +103,7 @@ struct TaskListView: View {
                 }
                 .withLoading(isLoading: isLoading, message: "Loading tasks...")
                 .onChange(of: appState.taskManager.taskError) { _, newError in
-                    if let taskError = newError as? TaskError, let processedError = DetailedErrorProcessor.convertTaskError(taskError) {
+                    if let taskError = newError, let processedError = DetailedErrorProcessor.convertTaskError(taskError) {
                         errorMessage = processedError.message
                         showError = true
                         

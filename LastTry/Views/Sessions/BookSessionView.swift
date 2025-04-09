@@ -128,7 +128,7 @@ struct BookSessionView: View {
             }
             .withLoading(isLoading: isLoading, message: "Booking session...")
             .onChange(of: appState.sessionManager.sessionError) { oldError, newError in
-                if let sessionError = newError as? SessionError, let processedError = DetailedErrorProcessor.convertSessionError(sessionError) {
+                if let sessionError = newError, let processedError = DetailedErrorProcessor.convertSessionError(sessionError) {
                     errorMessage = processedError.message
                     showError = true
                     isLoading = false

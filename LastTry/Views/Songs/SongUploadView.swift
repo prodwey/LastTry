@@ -336,7 +336,7 @@ struct SongUploadView: View {
                 }
                 .withLoading(isLoading: isLoading, message: "Uploading song...")
                 .onChange(of: appState.songManager.songError) { _, newError in
-                    if let songError = newError as? SongError, let processedError = DetailedErrorProcessor.convertSongError(songError) {
+                    if let songError = newError, let processedError = DetailedErrorProcessor.convertSongError(songError) {
                         errorMessage = processedError.message
                         showError = true
                         isLoading = false

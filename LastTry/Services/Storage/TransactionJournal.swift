@@ -98,7 +98,7 @@ class TransactionJournal {
             guard let self = self,
                   let userInfo = notification.userInfo,
                   let resourceId = userInfo["resourceId"] as? String,
-                  let operation = userInfo["operation"] as? String else {
+                  let _ = userInfo["operation"] as? String else {
                 return
             }
             
