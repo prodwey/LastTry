@@ -33,8 +33,9 @@ class AppState: ObservableObject {
     // Audio service - added for real audio playback
     @Published var audioService = AudioService()
     
-    // Centralized error handling service
-    @Published var errorService = ErrorHandlingService()
+    // Centralized error handling service - now accessing the shared singleton
+    // We keep this for backward compatibility during refactoring
+    @Published var errorService: ErrorHandlingServiceProtocol
     
     // Simple authentication state tracking - now derived from authService
     @Published var isAuthenticated: Bool = false
@@ -55,6 +56,9 @@ class AppState: ObservableObject {
     
     init() {
         print("AppState: Initializing")
+        
+        // Use the shared instance of ErrorHandlingService
+        self.errorService = ErrorHandlingService.shared
         
         // Initialize error-aware services
         self.songManager = SongManager(errorService: errorService)
@@ -107,7 +111,10 @@ class AppState: ObservableObject {
             errorService.reportError(error)
         }
         
-        // As we refactor, we'll gradually transition from the first approach to the second
+        // Or use the singleton directly (also new way)
+        ErrorHandlingService.shared.reportError(error)
+        
+        // As we refactor, we'll gradually transition from the first approach to the second or third
     }
     
     // MARK: - Auth State Management

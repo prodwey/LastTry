@@ -57,6 +57,9 @@ struct DashboardView: View {
                             Button("Create", action: createAITask)
                                 .disabled(aiTaskPrompt.isEmpty || isCreatingTask)
                         }
+                        .sheet(isPresented: $showingErrorHandlingDemo) {
+                            errorHandlingDemoSheet
+                        }
                         .onReceive(NotificationCenter.default.publisher(for: UIApplication.didBecomeActiveNotification)) { _ in
                             checkForTaskErrors()
                         }
@@ -70,8 +73,10 @@ struct DashboardView: View {
     
     private func checkForTaskErrors() {
         if let taskError = appState.taskManager.taskError {
-            // Use our central error handling system instead
-            appState.errorService.reportError(taskError)
+            // Use our new static error reporting function - much cleaner!
+            ErrorReporter.report(taskError)
+            
+            // Keep this for backward compatibility
             errorMessage = taskError.localizedDescription
             showError = true
             isCreatingTask = false
@@ -138,6 +143,14 @@ struct DashboardView: View {
                         color: Color(red: 0.67, green: 0.0, blue: 1.0)
                     ) {
                         showingAITaskPrompt = true
+                    }
+                    
+                    QuickActionButton(
+                        icon: "exclamationmark.triangle",
+                        title: "Error Demo",
+                        color: Color(red: 0.8, green: 0.2, blue: 0.2)
+                    ) {
+                        showErrorHandlingDemo()
                     }
                 }
                 .padding(.horizontal)
@@ -311,6 +324,20 @@ struct DashboardView: View {
             }
             // Error handling for specific errors is done through the onChange observer
         }
+    }
+    
+    // MARK: - Error Handling Demo
+    
+    @State private var showingErrorHandlingDemo = false
+    
+    private func showErrorHandlingDemo() {
+        showingErrorHandlingDemo = true
+    }
+    
+    private var errorHandlingDemoSheet: some View {
+        ErrorHandlingDemoView()
+            .background(Color.appBackground)
+            .edgesIgnoringSafeArea(.bottom)
     }
 }
 

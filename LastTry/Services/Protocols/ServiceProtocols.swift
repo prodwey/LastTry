@@ -6,7 +6,7 @@ import FirebaseAuth
 // MARK: - Error Handling Service Protocol
 
 /// Protocol defining the public interface for the error handling service
-protocol ErrorHandlingServiceProtocol {
+protocol ErrorHandlingServiceProtocol: AnyObject {
     /// The current error being displayed to the user
     var currentError: AppError? { get }
     

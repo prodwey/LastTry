@@ -521,4 +521,46 @@ class DetailedErrorProcessor {
         let appError = error.toAppError()
         return convertAppError(appError)
     }
-} 
+}
+
+//
+// Error Reporting Helpers
+//
+
+/// Centralized error reporting functions for convenient access from anywhere in the app
+extension ErrorHandlingServiceProtocol {
+    /// Access the global error handling service
+    static var shared: ErrorHandlingServiceProtocol {
+        return ErrorHandlingService.shared
+    }
+}
+
+/// Static helper methods for convenient error reporting from anywhere
+enum ErrorReporter {
+    /// Report an error to the global error handling service
+    /// - Parameter error: The error to report
+    static func report(_ error: Error) {
+        ErrorHandlingService.shared.reportError(error)
+    }
+    
+    /// Report an AppError to the global error handling service
+    /// - Parameter error: The AppError to report
+    static func report(_ error: AppError) {
+        ErrorHandlingService.shared.reportError(error)
+    }
+    
+    /// Handle a Result object, automatically reporting any error it contains
+    /// - Parameters:
+    ///   - result: The Result object to handle
+    ///   - successHandler: A closure to handle the success value
+    static func handle<T>(_ result: Result<T, Error>, successHandler: (T) -> Void) {
+        ErrorHandlingService.shared.handleResult(result, successHandler: successHandler)
+    }
+    
+    /// Clear any current error
+    static func clearError() {
+        ErrorHandlingService.shared.clearError()
+    }
+}
+
+// MARK: - DetailedErrorProcessor 
