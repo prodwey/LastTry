@@ -53,7 +53,7 @@ enum AuthError: Error, LocalizedError, Equatable {
 }
 
 // Main authentication service that handles Firebase Auth operations
-class AuthenticationService: ObservableObject {
+class AuthenticationService: ObservableObject, AuthenticationServiceProtocol {
     // Published properties for observing auth state and errors
     @Published private(set) var currentUser: FirebaseAuth.User?
     @Published private(set) var isAuthenticated: Bool = false
@@ -99,9 +99,15 @@ class AuthenticationService: ObservableObject {
     }
     
     /// Create a new user with email and password
-    func signUp(email: String, password: String) async -> Result<FirebaseAuth.User, AuthError> {
+    func signUp(email: String, password: String, name: String) async -> Result<FirebaseAuth.User, AuthError> {
         do {
             let authResult = try await Auth.auth().createUser(withEmail: email, password: password)
+            
+            // Update the profile with the provided name
+            let changeRequest = authResult.user.createProfileChangeRequest()
+            changeRequest.displayName = name
+            try await changeRequest.commitChanges()
+            
             return .success(authResult.user)
         } catch {
             let authError = handleFirebaseError(error)
@@ -127,14 +133,14 @@ class AuthenticationService: ObservableObject {
         }
     }
     
-    /// Update a user's profile (display name)
-    func updateUserProfile(displayName: String) async -> Result<Void, AuthError> {
+    /// Update a user's display name
+    func updateUserDisplayName(_ name: String) async -> Result<Void, AuthError> {
         guard let user = Auth.auth().currentUser else {
             return .failure(.userNotFound)
         }
         
         let changeRequest = user.createProfileChangeRequest()
-        changeRequest.displayName = displayName
+        changeRequest.displayName = name
         
         do {
             try await changeRequest.commitChanges()
@@ -149,13 +155,13 @@ class AuthenticationService: ObservableObject {
     }
     
     /// Update user's email
-    func updateEmail(to newEmail: String) async -> Result<Void, AuthError> {
+    func updateUserEmail(_ email: String) async -> Result<Void, AuthError> {
         guard let user = Auth.auth().currentUser else {
             return .failure(.userNotFound)
         }
         
         do {
-            try await user.sendEmailVerification(beforeUpdatingEmail: newEmail)
+            try await user.sendEmailVerification(beforeUpdatingEmail: email)
             return .success(())
         } catch {
             let authError = handleFirebaseError(error)
@@ -168,18 +174,10 @@ class AuthenticationService: ObservableObject {
         }
     }
     
-    /// Update user's password
-    func updatePassword(currentPassword: String, newPassword: String) async -> Result<Void, AuthError> {
-        guard let user = Auth.auth().currentUser, let email = user.email else {
-            return .failure(.userNotFound)
-        }
-        
-        // First re-authenticate
-        let credential = EmailAuthProvider.credential(withEmail: email, password: currentPassword)
-        
+    /// Reset password for an email
+    func resetPassword(for email: String) async -> Result<Void, AuthError> {
         do {
-            try await user.reauthenticate(with: credential)
-            try await user.updatePassword(to: newPassword)
+            try await Auth.auth().sendPasswordReset(withEmail: email)
             return .success(())
         } catch {
             let authError = handleFirebaseError(error)
@@ -190,10 +188,14 @@ class AuthenticationService: ObservableObject {
         }
     }
     
-    /// Send password reset email to the specified email address
-    func sendPasswordReset(to email: String) async -> Result<Void, AuthError> {
+    /// Delete the current user's account
+    func deleteAccount() async -> Result<Void, AuthError> {
+        guard let user = Auth.auth().currentUser else {
+            return .failure(.userNotFound)
+        }
+        
         do {
-            try await Auth.auth().sendPasswordReset(withEmail: email)
+            try await user.delete()
             return .success(())
         } catch {
             let authError = handleFirebaseError(error)

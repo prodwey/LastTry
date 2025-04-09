@@ -137,7 +137,7 @@ struct LoginView: View {
                 self.appState.authService.clearError()
             }
             
-            let result = await self.appState.authService.sendPasswordReset(to: email)
+            let result = await self.appState.authService.resetPassword(for: email)
             
             // Update UI on main thread
             await runOnMainActor {

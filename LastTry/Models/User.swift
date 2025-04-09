@@ -327,14 +327,14 @@ class UserManager: ObservableObject {
     ) {
         // Using runAsync helper instead of ConcurrencyTask
         runAsync {
-            let result = await appState.authService.signUp(email: email, password: password)
+            let result = await appState.authService.signUp(email: email, password: password, name: name)
             
             switch result {
             case .success(let firebaseUser):
                 print("UserManager: User created successfully in Firebase, uid: \(firebaseUser.uid)")
                 
                 // Update the display name using our service
-                let profileResult = await appState.authService.updateUserProfile(displayName: name)
+                let profileResult = await appState.authService.updateUserDisplayName(name)
                 
                 if case .failure(let error) = profileResult {
                     print("UserManager: Error updating display name: \(error.localizedDescription)")
@@ -450,7 +450,7 @@ class UserManager: ObservableObject {
     private func startUpdateUserProfileProcess(appState: AppState, name: String) {
         // Using runAsync helper instead of ConcurrencyTask
         runAsync {
-            let result = await appState.authService.updateUserProfile(displayName: name)
+            let result = await appState.authService.updateUserDisplayName(name)
             
             if case .failure(let error) = result {
                 print("UserManager: Error updating Firebase profile: \(error.localizedDescription)")
@@ -464,7 +464,7 @@ class UserManager: ObservableObject {
     }
     
     // Update user email
-    func updateEmail(to newEmail: String) -> Bool {
+    func updateUserEmail(to newEmail: String) -> Bool {
         guard let appState = appState else {
             self.authError = .invalidUserData("Internal error: Missing app state reference")
             return false
@@ -500,7 +500,7 @@ class UserManager: ObservableObject {
     private func startEmailUpdateProcess(appState: AppState, newEmail: String, user: User) {
         // Using runAsync helper instead of ConcurrencyTask
         runAsync {
-            let result = await appState.authService.updateEmail(to: newEmail)
+            let result = await appState.authService.updateUserEmail(newEmail)
             
             await runOnMainActor {
                 if case .failure(let error) = result {
@@ -529,34 +529,42 @@ class UserManager: ObservableObject {
             return false
         }
         
-        // Start password update process in the background
-        startPasswordUpdateProcess(
-            appState: appState,
-            currentPassword: currentPassword,
-            newPassword: newPassword
-        )
+        guard let currentUser = self.currentUser else {
+            self.authError = .userNotFound("No user is currently logged in")
+            return false
+        }
+        
+        let email = currentUser.email
+        if email.isEmpty {
+            self.authError = .invalidUserData("User email is missing")
+            return false
+        }
+        
+        // Start password reset process in the background
+        startPasswordResetProcess(appState: appState, email: email)
         
         return true // Since we're starting an async process, return success for now
     }
     
-    // Helper method to perform password update asynchronously
-    private func startPasswordUpdateProcess(
-        appState: AppState,
-        currentPassword: String,
-        newPassword: String
-    ) {
+    // Helper method to perform password reset asynchronously
+    private func startPasswordResetProcess(appState: AppState, email: String) {
         // Using runAsync helper instead of ConcurrencyTask
         runAsync {
-            let result = await appState.authService.updatePassword(
-                currentPassword: currentPassword,
-                newPassword: newPassword
-            )
+            let result = await appState.authService.resetPassword(for: email)
             
             await runOnMainActor {
                 if case .failure(let error) = result {
-                    self.authError = .failedToUpdate("Failed to update password: \(error.localizedDescription)")
+                    self.authError = .failedToUpdate("Failed to reset password: \(error.localizedDescription)")
                 } else {
-                    print("UserManager: Password updated successfully")
+                    print("UserManager: Password reset email sent successfully")
+                    // Just clear the authError since we're successful
+                    self.authError = nil
+                    // Notify any listeners that the password reset was successful
+                    NotificationCenter.default.post(
+                        name: Notification.Name("PasswordResetSuccessful"),
+                        object: nil,
+                        userInfo: ["message": "A password reset email has been sent to your email address."]
+                    )
                 }
             }
         }

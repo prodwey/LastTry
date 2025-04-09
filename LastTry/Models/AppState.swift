@@ -79,6 +79,35 @@ class AppState: ObservableObject {
         
         // Load initial data
         loadInitialData()
+        
+        // Register existing services with ServiceLocator without changing functionality
+        // This is part of the migration strategy to gradually refactor the application
+        setupServiceLocator()
+    }
+    
+    // MARK: - Service Locator Setup
+    
+    /// Register existing services with the ServiceLocator
+    /// This allows a gradual migration to DI without breaking existing code
+    private func setupServiceLocator() {
+        // Register all existing services with the ServiceLocator
+        ServiceLocator.shared.registerExistingServices(from: self)
+    }
+    
+    // MARK: - Example of using ServiceLocator
+    
+    /// Example method showing how to access a service through the ServiceLocator
+    /// This demonstrates the pattern that will be used throughout the refactoring
+    func reportErrorUsingServiceLocator(_ error: Error) {
+        // We can access the error service either through direct reference (current way)
+        errorService.reportError(error)
+        
+        // Or through the service locator (new way)
+        if let errorService = ServiceLocator.shared.resolve(ErrorHandlingServiceProtocol.self) {
+            errorService.reportError(error)
+        }
+        
+        // As we refactor, we'll gradually transition from the first approach to the second
     }
     
     // MARK: - Auth State Management
