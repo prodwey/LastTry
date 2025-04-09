@@ -68,15 +68,13 @@ class ServiceLocator {
         register(AuthenticationService.shared, for: AuthenticationServiceProtocol.self)  
         register(AuthenticationService.shared, for: AuthenticationService.self)
         
-        // For AudioService, use the instance from AppState for backward compatibility
-        register(appState.audioService, for: AudioServiceProtocol.self)
+        // For AudioService, always use the shared instance
+        register(AudioService.shared, for: AudioServiceProtocol.self)
+        register(AudioService.shared, for: AudioService.self)
         
         // For ErrorHandlingService, always use the shared instance
         register(ErrorHandlingService.shared, for: ErrorHandlingServiceProtocol.self)
         register(ErrorHandlingService.shared, for: ErrorHandlingService.self)
-        
-        // Also register the original service implementations for backward compatibility
-        register(appState.audioService, for: AudioService.self)
         
         // Mark as initialized
         isInitialized = true
