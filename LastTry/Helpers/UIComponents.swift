@@ -349,7 +349,7 @@ struct ErrorHelper {
             case .networkError:
                 return .warning
             case .signInFailed, .signUpFailed, .signOutFailed, .userNotFound, 
-                 .invalidCredentials, .unknown:
+                 .invalidCredentials, .unknown, .none:
                 return .error
             }
         }()

@@ -72,6 +72,9 @@ protocol AuthenticationServiceProtocol {
     
     /// Delete the current user's account
     func deleteAccount() async -> Result<Void, AuthError>
+    
+    /// Clear any current authentication errors
+    func clearError()
 }
 
 // MARK: - Audio Service Protocol

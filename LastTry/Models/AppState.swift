@@ -27,8 +27,8 @@ class AppState: ObservableObject {
     @Published var taskManager = TaskManager()
     @Published var newsManager = NewsManager()
     
-    // Authentication service - new centralized auth management
-    @Published var authService = AuthenticationService()
+    // Authentication service - now using the shared singleton
+    @Published var authService: AuthenticationServiceProtocol
     
     // Audio service - added for real audio playback
     @Published var audioService = AudioService()
@@ -59,6 +59,9 @@ class AppState: ObservableObject {
         
         // Use the shared instance of ErrorHandlingService
         self.errorService = ErrorHandlingService.shared
+        
+        // Use the shared instance of AuthenticationService
+        self.authService = AuthenticationService.shared
         
         // Initialize error-aware services
         self.songManager = SongManager(errorService: errorService)

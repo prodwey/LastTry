@@ -10,6 +10,7 @@ struct LoginView: View {
     @State private var showErrorAlert = false
     @State private var errorMessage = ""
     @State private var isLoggingIn = false
+    @State private var showAuthManagerDemo = false
     
     var body: some View {
         ZStack {
@@ -69,6 +70,14 @@ struct LoginView: View {
                 .padding(.top, 8)
                 
                 Spacer()
+                
+                // Demo Button
+                Button("Try New Authentication Demo") {
+                    showAuthManagerDemo = true
+                }
+                .font(.footnote)
+                .foregroundColor(.gray)
+                .padding(.bottom, 20)
             }
             .padding()
         }
@@ -80,6 +89,9 @@ struct LoginView: View {
                 message: Text(errorMessage),
                 dismissButton: .default(Text("OK"))
             )
+        }
+        .sheet(isPresented: $showAuthManagerDemo) {
+            AuthManagerDemoView()
         }
         .withLoading(isLoading: isLoggingIn, message: "Logging in...")
         .onChange(of: appState.userManager.authError) { _, newError in
