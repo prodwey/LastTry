@@ -193,7 +193,8 @@ class SessionManager: ObservableObject {
     
     /// Private initializer for singleton pattern
     private init() {
-        self.errorService = ErrorHandlingService.shared
+        // Get errorService from ServiceLocator
+        self.errorService = ServiceLocator.shared.resolve(ErrorHandlingServiceProtocol.self) ?? ErrorHandlingService.shared
         // Load sessions from CoreData on initialization
         loadSessions()
         print("SessionManager: Initialized shared instance")

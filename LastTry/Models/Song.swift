@@ -339,7 +339,8 @@ class SongManager: ObservableObject {
     
     /// Private initializer for singleton pattern, uses shared ErrorHandlingService
     private init() {
-        self.errorService = ErrorHandlingService.shared
+        // Get errorService from ServiceLocator
+        self.errorService = ServiceLocator.shared.resolve(ErrorHandlingServiceProtocol.self) ?? ErrorHandlingService.shared
         setupSubscriptions()
         loadSongs()
         print("SongManager: Initialized shared instance")

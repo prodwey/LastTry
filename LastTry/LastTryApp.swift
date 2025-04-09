@@ -12,11 +12,18 @@ import AVFoundation
 
 @main
 struct LastTryApp: App {
-    @StateObject private var appState = AppState()
+    // Initialize AppState after services are registered
+    @StateObject private var appState: AppState
     
     init() {
         // Initialize Firebase first, so AuthenticationService can use it
         FirebaseApp.configure()
+        
+        // Register all services with ServiceLocator before creating AppState
+        ServiceFactory.registerAllServices()
+        
+        // Now create AppState which will use the registered services
+        _appState = StateObject(wrappedValue: AppState())
         
         // Set up audio session for background playback
         configureAudioSession()
