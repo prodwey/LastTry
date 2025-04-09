@@ -23,7 +23,7 @@ enum AppLanguage: String, CaseIterable, Identifiable {
 class AppState: ObservableObject {
     @Published var userManager = UserManager()
     @Published var sessionManager = SessionManager()
-    @Published var songManager = SongManager()
+    @Published var songManager: SongManager!
     @Published var taskManager = TaskManager()
     @Published var newsManager = NewsManager()
     
@@ -32,6 +32,9 @@ class AppState: ObservableObject {
     
     // Audio service - added for real audio playback
     @Published var audioService = AudioService()
+    
+    // Centralized error handling service
+    @Published var errorService = ErrorHandlingService()
     
     // Simple authentication state tracking - now derived from authService
     @Published var isAuthenticated: Bool = false
@@ -52,6 +55,9 @@ class AppState: ObservableObject {
     
     init() {
         print("AppState: Initializing")
+        
+        // Initialize error-aware services
+        self.songManager = SongManager(errorService: errorService)
         
         // Set up connection between AppState and UserManager
         userManager.appState = self
@@ -328,12 +334,18 @@ class AppState: ObservableObject {
         // Try to play the song using the audio service
         do {
             try audioService.playSong(song)
-        } catch let error as AudioError {
-            audioError = error
+        } catch let error {
+            // Use the new error handling service
+            errorService.reportError(error)
+            
+            // Keep setting the audioError for backward compatibility
+            if let audioErr = error as? AudioError {
+                audioError = audioErr
+            } else {
+                audioError = AudioError.playbackError(error.localizedDescription)
+            }
+            
             print("Audio playback error: \(error.localizedDescription)")
-        } catch {
-            audioError = AudioError.playbackError(error.localizedDescription)
-            print("Unexpected audio error: \(error.localizedDescription)")
         }
     }
     

@@ -3,12 +3,156 @@ import AVFoundation
 
 struct MySongsView: View {
     @EnvironmentObject var appState: AppState
+    @State private var isShowingUploadSheet = false
     @State private var searchText = ""
     @State private var selectedSong: Song? = nil
+    @State private var isPlaybackActive = false
     @State private var isShowingFullPlayer = false
-    @State private var showError = false
-    @State private var errorMessage = ""
     
+    var body: some View {
+        NavigationStack {
+            ZStack {
+                Color.appBackground.ignoresSafeArea()
+                
+                VStack {
+                    if appState.songManager.songs.isEmpty {
+                        emptySongsView
+                    } else {
+                        songListView
+                    }
+                }
+            }
+            .navigationTitle("My Songs")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    addSongButton
+                }
+            }
+            .sheet(isPresented: $isShowingUploadSheet) {
+                if let selectedSession = getLatestSession() {
+                    SongUploadView(session: selectedSession)
+                } else {
+                    Text("No sessions available for upload")
+                        .padding()
+                }
+            }
+            .sheet(isPresented: $isShowingFullPlayer) {
+                if let song = appState.currentPlayingSong {
+                    SongPlayerView(song: song)
+                }
+            }
+            // Use the centralized error handling
+            .withErrorHandling(appState.errorService)
+            // Legacy error handling for backward compatibility
+            .onChange(of: appState.songManager.songError) { _, newError in
+                if let error = newError {
+                    // Forward to the centralized error handling service
+                    appState.errorService.reportError(error)
+                    
+                    // Reset the error in song manager after handling
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                        appState.songManager.songError = nil
+                    }
+                }
+            }
+            .onChange(of: appState.currentPlayingSong) { _, newSong in
+                isPlaybackActive = newSong != nil
+                
+                // Check if we should show the full player automatically
+                if newSong != nil && selectedSong != nil && newSong?.id == selectedSong?.id {
+                    isShowingFullPlayer = true
+                    selectedSong = nil
+                }
+            }
+            .onAppear {
+                // Refresh the songs list when view appears
+                appState.songManager.loadSongs()
+            }
+        }
+    }
+    
+    private var emptySongsView: some View {
+        VStack(spacing: 20) {
+            Spacer()
+            
+            Image(systemName: "music.note.list")
+                .font(.system(size: 60))
+                .foregroundColor(.gray)
+            
+            Text("No Songs Yet")
+                .font(.title)
+                .fontWeight(.bold)
+            
+            Text("Upload your first song from a recording session")
+                .multilineTextAlignment(.center)
+                .foregroundColor(.secondary)
+            
+            Spacer()
+            
+            Button(action: {
+                isShowingUploadSheet = true
+            }) {
+                HStack {
+                    Image(systemName: "plus.circle.fill")
+                    Text("Upload Song")
+                }
+                .frame(maxWidth: .infinity)
+                .padding()
+                .background(Color.appPrimary)
+                .foregroundColor(.white)
+                .cornerRadius(10)
+            }
+            .padding(.horizontal)
+            .padding(.bottom, 30)
+        }
+        .padding()
+    }
+    
+    private var songListView: some View {
+        List {
+            ForEach(filteredSongs) { song in
+                SongListItem(song: song, isPlaying: appState.currentPlayingSong?.id == song.id && appState.isPlaying)
+                    .contentShape(Rectangle())
+                    .onTapGesture {
+                        selectedSong = song
+                        
+                        if appState.currentPlayingSong?.id == song.id {
+                            // If the same song is already playing, just show the full player
+                            isShowingFullPlayer = true
+                        } else {
+                            // Otherwise, start playing the song
+                            do {
+                                appState.playSong(song)
+                            } catch {
+                                // This gets handled by the playSong method now
+                            }
+                        }
+                    }
+            }
+            .onDelete { indexSet in
+                deleteSongs(at: indexSet)
+            }
+        }
+        .listStyle(PlainListStyle())
+        .overlay(
+            // Search bar
+            SearchBar(text: $searchText, placeholder: "Search songs")
+                .padding(.horizontal)
+                .padding(.top, 8),
+            alignment: .top
+        )
+    }
+    
+    private var addSongButton: some View {
+        Button {
+            isShowingUploadSheet = true
+        } label: {
+            Image(systemName: "plus")
+        }
+    }
+    
+    // Helper to get filtered songs based on search text
     private var filteredSongs: [Song] {
         if searchText.isEmpty {
             return appState.songManager.songs
@@ -17,383 +161,165 @@ struct MySongsView: View {
         }
     }
     
+    // Helper to get the latest session for uploading
+    private func getLatestSession() -> Session? {
+        return appState.sessionManager.sessions
+            .filter { $0.date < Date() } // Only past sessions
+            .sorted { $0.date > $1.date } // Most recent first
+            .first
+    }
+    
+    // Delete songs at the specified indices
+    private func deleteSongs(at indexSet: IndexSet) {
+        for index in indexSet {
+            let songId = filteredSongs[index].id
+            let success = appState.songManager.deleteSong(withID: songId)
+            
+            if !success {
+                // Error will be caught via the onChange handler
+                break
+            }
+        }
+    }
+}
+
+// A simple list item for a song
+struct SongListItem: View {
+    let song: Song
+    let isPlaying: Bool
+    
     var body: some View {
-        NavigationStack {
+        HStack(spacing: 12) {
+            // Album art / placeholder
             ZStack {
-                Color.appBackground
-                    .ignoresSafeArea()
-                
-                VStack(spacing: 0) {
-                    // Song list
-                    if appState.songManager.songs.isEmpty {
-                        EmptyStateView(
-                            icon: "music.note.list",
-                            title: "No Songs",
-                            message: "Your uploaded songs will appear here"
-                        )
-                        .padding(.top, 80)
-                    } else {
-                        // Categories/Filters
-                        ScrollView(.horizontal, showsIndicators: false) {
-                            HStack(spacing: 16) {
-                                CategoryPill(title: "All", isSelected: true)
-                                CategoryPill(title: "Recent")
-                                CategoryPill(title: "Artists")
-                                CategoryPill(title: "Albums")
-                                CategoryPill(title: "Downloads")
-                            }
-                            .padding(.horizontal)
-                            .padding(.vertical, 8)
-                        }
-                        
-                        // Song list
-                        ScrollView {
-                            LazyVStack(spacing: 4) {
-                                ForEach(filteredSongs) { song in
-                                    SongRowView(
-                                        song: song,
-                                        isPlaying: song.id == appState.currentPlayingSong?.id && appState.isPlaying,
-                                        onTap: {
-                                            self.playSong(song)
-                                        }
-                                    )
-                                }
-                            }
-                        }
-                    }
-                }
-                .searchable(text: $searchText, prompt: "Search songs")
-                .foregroundColor(.appTextPrimary)
-                .navigationTitle("Songs")
-                .toolbarBackground(Color.appBackground, for: .navigationBar)
-                .toolbarBackground(.visible, for: .navigationBar)
-                .toolbarColorScheme(.dark, for: .navigationBar)
-                .sheet(isPresented: $isShowingFullPlayer) {
-                    if let song = appState.currentPlayingSong {
-                        FullPlayerView(song: song)
-                    }
-                }
-            }
-        }
-    }
-    
-    private func playSong(_ song: Song) {
-        // If the song is already playing, show the full player
-        if appState.currentPlayingSong?.id == song.id {
-            isShowingFullPlayer = true
-            return
-        }
-        
-        // Otherwise, start playing the song using real audio service
-        appState.playSong(song)
-        
-        // Check for errors
-        if let error = appState.audioError {
-            errorMessage = error.localizedDescription
-            showError = true
-            return
-        }
-        
-        // If playback started successfully, show the full player
-        isShowingFullPlayer = true
-    }
-}
-
-struct CategoryPill: View {
-    var title: String
-    var isSelected: Bool = false
-    
-    var body: some View {
-        Text(title)
-            .font(.system(size: 14, weight: isSelected ? .bold : .medium))
-            .padding(.horizontal, 16)
-            .padding(.vertical, 8)
-            .background(isSelected ? Color.appElevatedBackground : Color.clear)
-            .foregroundColor(isSelected ? .appTextPrimary : .appTextSecondary)
-            .cornerRadius(16)
-    }
-}
-
-struct SongRowView: View {
-    var song: Song
-    var isPlaying: Bool
-    var onTap: () -> Void
-    
-    var body: some View {
-        Button(action: onTap) {
-            HStack(spacing: 16) {
-                // Thumbnail
-                ZStack {
-                    RoundedRectangle(cornerRadius: 4)
-                        .fill(Color.appElevatedBackground)
-                        .frame(width: 56, height: 56)
-                    
-                    if isPlaying {
-                        Image(systemName: "music.note")
-                            .foregroundColor(.appPrimary)
-                    } else {
-                        Image(systemName: "music.note")
-                            .foregroundColor(.appTextSecondary)
-                    }
-                }
-                
-                // Song info
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(song.name)
-                        .font(.system(size: 16, weight: isPlaying ? .semibold : .regular))
-                        .foregroundColor(isPlaying ? .appPrimary : .appTextPrimary)
-                        .lineLimit(1)
-                    
-                    if !song.artists.isEmpty {
-                        Text(song.artists.map { $0.name }.joined(separator: ", "))
-                            .font(.system(size: 14))
-                            .foregroundColor(.appTextSecondary)
-                            .lineLimit(1)
-                    }
-                }
-                
-                Spacer()
-                
-                // Duration + Options menu
-                HStack(spacing: 16) {
-                    if let duration = song.duration {
-                        Text(formatTime(duration))
-                            .font(.system(size: 14))
-                            .foregroundColor(.appTextSecondary)
-                    }
-                    
-                    Image(systemName: "ellipsis")
-                        .foregroundColor(.appTextSecondary)
-                }
-            }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 8)
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-    }
-}
-
-struct FullPlayerView: View {
-    @EnvironmentObject var appState: AppState
-    @Environment(\.dismiss) var dismiss
-    
-    var song: Song
-    @State private var isScrubbing = false
-    @State private var scrubbingValue: Double = 0
-    @State private var showError = false
-    @State private var errorMessage = ""
-    
-    var body: some View {
-        ZStack {
-            // Background
-            Color.appBackground
-                .ignoresSafeArea()
-            
-            VStack(spacing: 20) {
-                // Navigation bar
-                HStack {
-                    Button(action: { 
-                        dismiss() 
-                        // Don't stop playback when dismissing, just keep the mini-player
-                    }) {
-                        Image(systemName: "chevron.down")
-                            .font(.title3)
-                            .foregroundColor(.appTextPrimary)
-                    }
-                    
-                    Spacer()
-                    
-                    Text("NOW PLAYING")
-                        .font(.system(size: 12, weight: .medium))
-                        .foregroundColor(.appTextSecondary)
-                    
-                    Spacer()
-                    
-                    // Close and stop playback button
-                    Button(action: { 
-                        appState.stopPlayback()
-                        dismiss()
-                    }) {
-                        Image(systemName: "xmark")
-                            .font(.title3)
-                            .foregroundColor(.appTextPrimary)
-                    }
-                }
-                .padding(.horizontal)
-                .padding(.top, 16)
-                
-                Spacer()
-                
-                // Album art
                 RoundedRectangle(cornerRadius: 8)
-                    .fill(Color.appElevatedBackground)
-                    .aspectRatio(1, contentMode: .fit)
-                    .frame(maxWidth: 300)
-                    .overlay(
-                        Image(systemName: "music.note")
-                            .font(.system(size: 60))
-                            .foregroundColor(.appTextSecondary)
-                    )
-                    .shadow(color: Color.black.opacity(0.3), radius: 10, x: 0, y: 5)
+                    .fill(Color.gray.opacity(0.2))
+                    .frame(width: 50, height: 50)
                 
-                Spacer()
-                
-                // Song info
-                VStack(spacing: 8) {
-                    Text(song.name)
-                        .font(.system(size: 24, weight: .bold))
-                        .foregroundColor(.appTextPrimary)
-                    
-                    Text(song.artists.map { $0.name }.joined(separator: ", "))
-                        .font(.system(size: 18))
-                        .foregroundColor(.appTextSecondary)
+                if isPlaying {
+                    Image(systemName: "play.fill")
+                        .foregroundColor(.appPrimary)
+                } else {
+                    Image(systemName: "music.note")
+                        .foregroundColor(.gray)
                 }
-                
-                Spacer()
-                
-                // Playback progress
-                VStack(spacing: 8) {
-                    // Use scrubbing state to avoid constant updates while dragging
-                    Slider(
-                        value: Binding(
-                            get: { 
-                                isScrubbing ? scrubbingValue : appState.currentPlaybackPosition 
-                            },
-                            set: { newValue in
-                                scrubbingValue = newValue
-                                isScrubbing = true
-                            }
-                        ),
-                        in: 0...(appState.audioService.duration > 0 ? appState.audioService.duration : (song.duration ?? 180))
-                    )
-                    .accentColor(.appPrimary)
-                    .simultaneousGesture(
-                        DragGesture(minimumDistance: 0)
-                            .onEnded { _ in
-                                // When user finishes dragging, apply the seek
-                                if isScrubbing {
-                                    appState.seekToPosition(scrubbingValue)
-                                    isScrubbing = false
-                                }
-                            }
-                    )
-                    
-                    HStack {
-                        Text(formatTime(appState.currentPlaybackPosition))
-                            .font(.system(size: 12))
-                            .foregroundColor(.appTextSecondary)
-                        
-                        Spacer()
-                        
-                        let duration = appState.audioService.duration > 0 ? 
-                                       appState.audioService.duration : 
-                                       (song.duration ?? 180)
-                        Text(formatTime(duration))
-                            .font(.system(size: 12))
-                            .foregroundColor(.appTextSecondary)
-                    }
-                }
-                .padding(.horizontal)
-                
-                // Playback controls
-                HStack(spacing: 32) {
-                    Button(action: {}) {
-                        Image(systemName: "shuffle")
-                            .font(.system(size: 24))
-                            .foregroundColor(.appTextSecondary)
-                    }
-                    
-                    Button(action: {
-                        // Seek 10 seconds backward
-                        let newPosition = max(0, appState.currentPlaybackPosition - 10)
-                        appState.seekToPosition(newPosition)
-                    }) {
-                        Image(systemName: "backward.fill")
-                            .font(.system(size: 36))
-                            .foregroundColor(.appTextPrimary)
-                    }
-                    
-                    Button(action: {
-                        if appState.isPlaying {
-                            appState.pausePlayback()
-                        } else {
-                            appState.resumePlayback()
-                        }
-                    }) {
-                        Image(systemName: appState.isPlaying ? "pause.circle.fill" : "play.circle.fill")
-                            .font(.system(size: 72))
-                            .foregroundColor(.appTextPrimary)
-                    }
-                    
-                    Button(action: {
-                        // Seek 10 seconds forward
-                        let maxDuration = appState.audioService.duration > 0 ? 
-                                        appState.audioService.duration : 
-                                        (song.duration ?? 180)
-                        let newPosition = min(maxDuration, appState.currentPlaybackPosition + 10)
-                        appState.seekToPosition(newPosition)
-                    }) {
-                        Image(systemName: "forward.fill")
-                            .font(.system(size: 36))
-                            .foregroundColor(.appTextPrimary)
-                    }
-                    
-                    Button(action: {}) {
-                        Image(systemName: "repeat")
-                            .font(.system(size: 24))
-                            .foregroundColor(.appTextSecondary)
-                    }
-                }
-                
-                Spacer()
             }
-            .padding(.bottom, 24)
-        }
-        .onAppear {
-            // Initialize scrubbing value with current position when view appears
-            scrubbingValue = appState.currentPlaybackPosition
             
-            // Check for errors from audio playback
-            if let error = appState.audioError {
-                errorMessage = error.localizedDescription
-                showError = true
-            }
-        }
-        // Instead of using onChange, use a timer to check for errors
-        .onReceive(Timer.publish(every: 0.5, on: .main, in: .common).autoconnect()) { _ in
-            // This periodically checks for errors instead of using onChange
-            if let error = appState.audioError {
-                // Only show if we have a new error message
-                if errorMessage != error.localizedDescription {
-                    errorMessage = error.localizedDescription
-                    showError = true
+            // Song info
+            VStack(alignment: .leading, spacing: 4) {
+                Text(song.name)
+                    .font(.headline)
+                    .lineLimit(1)
+                
+                if !song.artists.isEmpty {
+                    Text(song.artists.map { $0.name }.joined(separator: ", "))
+                        .font(.subheadline)
+                        .foregroundColor(.secondary)
+                        .lineLimit(1)
+                }
+                
+                HStack {
+                    Text(song.formattedDuration)
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                    
+                    Text("•")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                    
+                    Text(song.formattedFileSize)
+                        .font(.caption)
+                        .foregroundColor(.secondary)
                 }
             }
+            
+            Spacer()
+            
+            // Status indicator
+            if isPlaying {
+                Image(systemName: "speaker.wave.3.fill")
+                    .foregroundColor(.appPrimary)
+            }
         }
-        .alert(isPresented: $showError) {
-            Alert(
-                title: Text("Playback Error"),
-                message: Text(errorMessage),
-                dismissButton: .default(Text("OK"))
-            )
-        }
+        .padding(.vertical, 8)
     }
 }
 
-// Helper method to format time
-func formatTime(_ timeInSeconds: TimeInterval) -> String {
-    let minutes = Int(timeInSeconds) / 60
-    let seconds = Int(timeInSeconds) % 60
-    return String(format: "%d:%02d", minutes, seconds)
+// A simple search bar component
+struct SearchBar: View {
+    @Binding var text: String
+    var placeholder: String
+    
+    var body: some View {
+        HStack {
+            Image(systemName: "magnifyingglass")
+                .foregroundColor(.gray)
+            
+            TextField(placeholder, text: $text)
+                .foregroundColor(.primary)
+            
+            if !text.isEmpty {
+                Button(action: {
+                    text = ""
+                }) {
+                    Image(systemName: "xmark.circle.fill")
+                        .foregroundColor(.gray)
+                }
+            }
+        }
+        .padding(10)
+        .background(Color(.systemBackground))
+        .cornerRadius(10)
+        .shadow(color: Color.black.opacity(0.15), radius: 2, x: 0, y: 1)
+    }
 }
 
 #Preview {
     MySongsView()
         .environmentObject({
             let state = AppState()
-            state.loadDemoData()
+            
+            // Add some sample songs for preview
+            let songs = [
+                Song(
+                    id: "1",
+                    name: "Feeling Good",
+                    fileURL: nil,
+                    format: .mp3,
+                    artists: [Artist(id: "1", name: "Ana Souza")],
+                    lyrics: "Birds flying high, you know how I feel...",
+                    dateCreated: Date().addingTimeInterval(-86400), // 1 day ago
+                    fileSize: 4523091,
+                    duration: 201.5,
+                    sessionId: "session1"
+                ),
+                Song(
+                    id: "2",
+                    name: "Sunset Boulevard",
+                    fileURL: nil,
+                    format: .wav,
+                    artists: [Artist(id: "2", name: "Rafael Lima")],
+                    lyrics: "Walking down that old sunset boulevard...",
+                    dateCreated: Date().addingTimeInterval(-172800), // 2 days ago
+                    fileSize: 12945834,
+                    duration: 184.3,
+                    sessionId: "session1"
+                ),
+                Song(
+                    id: "3",
+                    name: "Midnight Rain",
+                    fileURL: nil,
+                    format: .mp3,
+                    artists: [Artist(id: "3", name: "Mariana Costa")],
+                    lyrics: "The rain falls softly on my window...",
+                    dateCreated: Date().addingTimeInterval(-345600), // 4 days ago
+                    fileSize: 3854102,
+                    duration: 240.8,
+                    sessionId: "session2"
+                )
+            ]
+            
+            state.songManager.songs = songs
             return state
         }())
-        .preferredColorScheme(.dark)
 } 

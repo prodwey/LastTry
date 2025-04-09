@@ -319,11 +319,15 @@ class SongManager: ObservableObject {
     // Reference to caching services
     private let songCacheService = SongCacheService.shared
     private let audioCacheService = AudioCacheService.shared
+    // Reference to error handling service (optional)
+    private weak var errorService: ErrorHandlingService?
     
     // Listen for file upload status updates
     private var cancellables = Set<AnyCancellable>()
     
-    init() {
+    init(errorService: ErrorHandlingService? = nil) {
+        self.errorService = errorService
+        
         // Set up subscription to file upload status
         filePersistenceHelper.uploadStatus
             .receive(on: DispatchQueue.main)
@@ -345,6 +349,9 @@ class SongManager: ObservableObject {
                     } else {
                         self.songError = .fileError(error.localizedDescription)
                     }
+                    
+                    // Report to error service if available
+                    self.errorService?.reportError(self.songError!)
                 case .uploading, .completed:
                     // These are handled by specific methods
                     break
@@ -581,7 +588,7 @@ class SongManager: ObservableObject {
         }
     }
     
-    // Load all songs from CoreData
+    // Load all songs from CoreData - updated to use the Result approach consistently
     func loadSongs() {
         let context = coreDataManager.viewContext
         let songManager = self.songDataManager // Capture in local variable
@@ -598,6 +605,7 @@ class SongManager: ObservableObject {
             in: context
         )
         
+        // Handle the result
         switch result {
         case .success(let entities):
             let loadedSongs = songManager.createModels(from: entities)
@@ -612,8 +620,14 @@ class SongManager: ObservableObject {
                 self.audioCacheService.prefetchAudio(for: Array(songsToCache))
             }
         case .failure(let error):
+            // For backward compatibility, still set the songError property
+            let songError = SongError.failedToLoad("Failed to load songs: \(error.localizedDescription)")
+            self.songError = songError
+            
+            // Report to error handling service if available
+            self.errorService?.reportError(songError)
+            
             print("Error loading songs from CoreData: \(error.localizedDescription)")
-            songError = .failedToLoad("Failed to load songs: \(error.localizedDescription)")
         }
     }
     
