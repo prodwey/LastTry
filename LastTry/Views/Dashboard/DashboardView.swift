@@ -72,7 +72,7 @@ struct DashboardView: View {
     }
     
     private func checkForTaskErrors() {
-        if let taskError = appState.taskManager.taskError {
+        if let taskError = appState.getTaskManager().taskError {
             // Use our new static error reporting function - much cleaner!
             ErrorReporter.report(taskError)
             
@@ -82,7 +82,7 @@ struct DashboardView: View {
             isCreatingTask = false
             
             // Clear error after processing
-            appState.taskManager.taskError = nil
+            appState.getTaskManager().clearError()
         }
     }
     
@@ -240,7 +240,7 @@ struct DashboardView: View {
         VStack(alignment: .leading, spacing: 16) {
             SectionHeaderView(title: "Recently Played")
             
-            if appState.songManager.songs.isEmpty {
+            if appState.getSongManager().songs.isEmpty {
                 EmptyStateView(
                     icon: "music.note.list",
                     title: "No Recent Songs",
@@ -250,7 +250,7 @@ struct DashboardView: View {
             } else {
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 16) {
-                        ForEach(appState.songManager.songs.prefix(5)) { song in
+                        ForEach(appState.getSongManager().songs.prefix(5)) { song in
                             SongCardView(song: song) {
                                 appState.playSong(song)
                             }
@@ -266,83 +266,69 @@ struct DashboardView: View {
         VStack(alignment: .leading, spacing: 16) {
             SectionHeaderView(title: "Tasks")
             
-            if appState.taskManager.tasks.isEmpty {
+            if appState.getTaskManager().tasks.isEmpty {
                 EmptyStateView(
                     icon: "checklist",
-                    title: "No Tasks",
-                    message: "Add tasks to keep track of your work"
+                    title: "No Active Tasks",
+                    message: "Tasks you create will appear here"
                 )
                 .padding(.vertical, 20)
             } else {
-                VStack(spacing: 2) {
-                    ForEach(appState.taskManager.sortedByPriority().prefix(3)) { task in
-                        TaskRowView(task: task)
-                            .padding(.horizontal)
-                            .padding(.vertical, 12)
-                            .background(Color.appElevatedBackground)
-                            .cornerRadius(8)
-                    }
-                    
-                    if appState.taskManager.tasks.count > 3 {
-                        NavigationLink(destination: TaskListView()) {
-                            Text("View All Tasks")
-                                .font(.system(size: 14, weight: .medium))
-                                .foregroundColor(.appTextSecondary)
-                                .padding(.vertical, 12)
-                        }
+                let priorityTasks = appState.getTaskManager().sortedByPriority().prefix(3)
+                
+                ForEach(Array(priorityTasks)) { task in
+                    TaskRowView(task: task)
+                }
+                
+                if appState.getTaskManager().tasks.count > 3 {
+                    NavigationLink(destination: TaskListView()) {
+                        Text("View All Tasks")
+                            .font(.system(size: 16, weight: .medium))
+                            .foregroundColor(.appPrimary)
+                            .padding(.top, 8)
                     }
                 }
-                .padding(.horizontal)
             }
         }
+        .padding(.horizontal)
     }
     
     private var upcomingSessionsSection: some View {
         VStack(alignment: .leading, spacing: 16) {
             SectionHeaderView(title: "Upcoming Sessions")
             
-            let upcomingSessions = appState.sessionManager.upcomingSessions()
-            
-            if upcomingSessions.isEmpty {
+            if appState.getSessionManager().upcomingSessions().isEmpty {
                 EmptyStateView(
                     icon: "calendar",
                     title: "No Upcoming Sessions",
-                    message: "Book a session to get started"
+                    message: "Sessions you schedule will appear here"
                 )
                 .padding(.vertical, 20)
             } else {
-                VStack(spacing: 2) {
-                    ForEach(upcomingSessions.prefix(3)) { session in
-                        SessionRowView(session: session)
-                            .padding(.horizontal)
-                            .padding(.vertical, 12)
-                            .background(Color.appElevatedBackground)
-                            .cornerRadius(8)
-                    }
-                    
-                    if upcomingSessions.count > 3 {
-                        Button(action: {
-                            appState.tabSelection = 1
-                        }) {
-                            Text("View All Sessions")
-                                .font(.system(size: 14, weight: .medium))
-                                .foregroundColor(.appTextSecondary)
-                                .padding(.vertical, 12)
-                        }
+                ForEach(appState.getSessionManager().upcomingSessions().prefix(2)) { session in
+                    SessionRowView(session: session)
+                }
+                
+                if appState.getSessionManager().upcomingSessions().count > 2 {
+                    NavigationLink(destination: Text("Session List")) {
+                        Text("View All Sessions")
+                            .font(.system(size: 16, weight: .medium))
+                            .foregroundColor(.appPrimary)
+                            .padding(.top, 8)
                     }
                 }
-                .padding(.horizontal)
             }
         }
+        .padding(.horizontal)
     }
     
     private var shouldShowPastSessionsSection: Bool {
-        let pastSessionsWithoutSongs = appState.sessionManager.pastSessions().filter { !$0.hasUploadedAudio }
+        let pastSessionsWithoutSongs = appState.getSessionManager().pastSessions().filter { !$0.hasUploadedAudio }
         return !pastSessionsWithoutSongs.isEmpty
     }
     
     private var pastSessionsWithoutUploadsSection: some View {
-        let pastSessionsWithoutSongs = appState.sessionManager.pastSessions().filter { !$0.hasUploadedAudio }
+        let pastSessionsWithoutSongs = appState.getSessionManager().pastSessions().filter { !$0.hasUploadedAudio }
         
         return VStack(alignment: .leading, spacing: 16) {
             SectionHeaderView(title: "Missing Uploads")
@@ -362,11 +348,31 @@ struct DashboardView: View {
     
     private var newsFeedSection: some View {
         VStack(alignment: .leading, spacing: 16) {
-            SectionHeaderView(title: "Music News")
+            SectionHeaderView(title: "News & Updates")
             
-            NewsFeedView()
-                .padding(.horizontal)
+            if appState.getNewsManager().newsItems.isEmpty {
+                EmptyStateView(
+                    icon: "newspaper",
+                    title: "No News Updates",
+                    message: "Industry news and updates will appear here"
+                )
+                .padding(.vertical, 20)
+            } else {
+                ForEach(appState.getNewsManager().newsItems.prefix(3)) { news in
+                    NewsItemView()
+                }
+                
+                if appState.getNewsManager().newsItems.count > 3 {
+                    NavigationLink(destination: Text("News List")) {
+                        Text("View All News")
+                            .font(.system(size: 16, weight: .medium))
+                            .foregroundColor(.appPrimary)
+                            .padding(.top, 8)
+                    }
+                }
+            }
         }
+        .padding(.horizontal)
     }
     
     private func createAITask() {
@@ -382,19 +388,19 @@ struct DashboardView: View {
         // For now, we'll simulate a delay and create a simple task
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
             // Create a task with the AI prompt as description
-            let success = appState.taskManager.addTask(
+            let success = appState.getTaskManager().addTask(
                 title: "AI Generated Task",
                 description: aiTaskPrompt,
                 priority: .medium,
                 dueDate: Date().addingTimeInterval(24 * 60 * 60), // Tomorrow
-                assignedTo: appState.userManager.currentUser?.id,
-                createdBy: appState.userManager.currentUser?.id ?? ""
+                assignedTo: appState.getUserManager().currentUser?.id,
+                createdBy: appState.getUserManager().currentUser?.id ?? ""
             )
             
             if success {
                 isCreatingTask = false
                 aiTaskPrompt = ""
-            } else if appState.taskManager.taskError == nil {
+            } else if appState.getTaskManager().taskError == nil {
                 isCreatingTask = false
                 errorMessage = "Failed to create AI task. Please try again."
                 showError = true
@@ -506,7 +512,7 @@ struct TaskRowView: View {
             HStack(alignment: .top, spacing: 12) {
                 Button(action: {
                     // Use _ = to explicitly discard the result
-                    _ = appState.taskManager.toggleTaskCompletion(taskId: task.id)
+                    _ = appState.getTaskManager().toggleTaskCompletion(taskId: task.id)
                 }) {
                     Image(systemName: task.isCompleted ? "checkmark.circle.fill" : "circle")
                         .foregroundColor(task.isCompleted ? .green : .appTextSecondary)

@@ -169,29 +169,78 @@ class UserDataManager: CoreDataManaging {
     }
 }
 
-class UserManager: ObservableObject {
+class UserManager: ObservableObject, UserManagerProtocol {
+    // MARK: - Singleton
+    
+    /// Shared instance for global access
+    static let shared = UserManager()
+    
+    // MARK: - Published Properties
+    
     @Published var currentUser: User?
     @Published var isLoggedIn: Bool = false
     @Published var authError: UserError? = nil
     
-    // Reference to app state for synchronization
-    weak var appState: AppState?
+    // MARK: - Private Properties
     
     private let userDefaultsKey = "currentUser"
     private let isLoggedInKey = "isLoggedIn"
     
-    // Reference to CoreData manager
+    // Service dependencies
     private let coreDataManager = CoreDataManager.shared
-    // Reference to the user data manager
     private let userDataManager = UserDataManager()
-    // Set of cancellables for Combine subscriptions
+    private let authService: AuthenticationServiceProtocol
+    private let errorService: ErrorHandlingServiceProtocol
+    
+    // Combine cancellables
     private var cancellables = Set<AnyCancellable>()
     
-    init() {
-        print("UserManager: Initializing")
+    // MARK: - Initialization
+    
+    /// Private initializer for singleton pattern
+    private init() {
+        print("UserManager: Initializing shared instance")
+        
+        // Get dependencies through ServiceLocator
+        self.authService = ServiceLocator.shared.resolve(AuthenticationServiceProtocol.self) ?? AuthenticationService.shared
+        self.errorService = ServiceLocator.shared.resolve(ErrorHandlingServiceProtocol.self) ?? ErrorHandlingService.shared
+        
+        // Setup auth state observation
+        setupAuthStateSubscription()
     }
     
-    // Load user data from Firebase user
+    /// Dependency injection initializer for testing
+    init(authService: AuthenticationServiceProtocol, errorService: ErrorHandlingServiceProtocol) {
+        print("UserManager: Initializing with custom dependencies")
+        self.authService = authService
+        self.errorService = errorService
+    }
+    
+    // MARK: - Private Methods
+    
+    private func setupAuthStateSubscription() {
+        // Subscribe to authentication state changes
+        authService.authStatePublisher
+            .receive(on: RunLoop.main)
+            .sink { [weak self] isAuthenticated in
+                guard let self = self else { return }
+                
+                // Update our authentication state
+                self.isLoggedIn = isAuthenticated
+                
+                // Handle logout - clear user if needed
+                if !isAuthenticated && self.currentUser != nil {
+                    self.currentUser = nil
+                    self.saveUserData()
+                    print("UserManager: Cleared user data due to authentication state change")
+                }
+            }
+            .store(in: &cancellables)
+    }
+    
+    // MARK: - Public Methods
+    
+    /// Load user data from Firebase user
     func loadUserFromFirebase(_ firebaseUser: FirebaseAuth.User) {
         print("UserManager: Loading user data from Firebase user: \(firebaseUser.uid)")
         
@@ -240,7 +289,7 @@ class UserManager: ObservableObject {
         }
     }
     
-    // Save user data to UserDefaults for backward compatibility
+    /// Save user data to UserDefaults for backward compatibility
     func saveUserData() {
         // Save isLoggedIn state
         UserDefaults.standard.set(isLoggedIn, forKey: isLoggedInKey)
@@ -292,22 +341,15 @@ class UserManager: ObservableObject {
         }
     }
     
-    // MARK: - Authentication Methods (now using AuthenticationService)
+    // MARK: - Authentication Methods
     
-    // Sign up user using the authentication service
+    /// Sign up user using the authentication service
     func signUp(name: String, email: String, password: String, dateOfBirth: Date, role: UserRole) {
         print("UserManager: Starting sign up process for \(email)")
         self.authError = nil
         
-        guard let appState = appState else {
-            print("UserManager: No app state reference")
-            self.authError = .invalidUserData("Internal error: Missing app state reference")
-            return
-        }
-        
         // Use a separate async function to handle the sign-up logic
         startSignUpProcess(
-            appState: appState,
             name: name,
             email: email,
             password: password,
@@ -318,7 +360,6 @@ class UserManager: ObservableObject {
     
     // Helper method to perform sign-up asynchronously
     private func startSignUpProcess(
-        appState: AppState,
         name: String,
         email: String,
         password: String,
@@ -327,14 +368,14 @@ class UserManager: ObservableObject {
     ) {
         // Using runAsync helper instead of ConcurrencyTask
         runAsync {
-            let result = await appState.authService.signUp(email: email, password: password, name: name)
+            let result = await self.authService.signUp(email: email, password: password, name: name)
             
             switch result {
             case .success(let firebaseUser):
                 print("UserManager: User created successfully in Firebase, uid: \(firebaseUser.uid)")
                 
                 // Update the display name using our service
-                let profileResult = await appState.authService.updateUserDisplayName(name)
+                let profileResult = await self.authService.updateUserDisplayName(name)
                 
                 if case .failure(let error) = profileResult {
                     print("UserManager: Error updating display name: \(error.localizedDescription)")
@@ -365,220 +406,108 @@ class UserManager: ObservableObject {
         }
     }
     
-    // Login using the authentication service
+    /// Login using the authentication service
     func login(email: String, password: String) {
         print("UserManager: Starting login process for \(email)")
         self.authError = nil
         
-        guard let appState = appState else {
-            print("UserManager: No app state reference")
-            self.authError = .invalidUserData("Internal error: Missing app state reference")
-            return
-        }
-        
         // Use a separate async function to handle the login logic
-        startLoginProcess(appState: appState, email: email, password: password)
+        startLoginProcess(email: email, password: password)
     }
     
     // Helper method to perform login asynchronously
-    private func startLoginProcess(appState: AppState, email: String, password: String) {
+    private func startLoginProcess(email: String, password: String) {
         // Using runAsync helper instead of ConcurrencyTask
         runAsync {
-            let result = await appState.authService.signIn(email: email, password: password)
+            let result = await self.authService.signIn(email: email, password: password)
             
             await runOnMainActor {
                 if case .failure(let error) = result {
                     self.authError = .invalidUserData(error.localizedDescription)
                 } else {
                     print("UserManager: Login successful")
-                    // Auth state listener in AppState will handle the rest
+                    // Auth state listener will handle the rest
                 }
             }
         }
     }
     
-    // Logout using the authentication service
+    /// Logout using the authentication service
     func logout() {
         print("UserManager: Attempting to sign out")
         
-        guard let appState = appState else {
-            print("UserManager: No app state reference")
-            return
-        }
-        
-        let result = appState.authService.signOut()
+        let result = authService.signOut()
         
         if case .failure(let error) = result {
             print("UserManager: Error signing out: \(error.localizedDescription)")
+            self.authError = .invalidUserData(error.localizedDescription)
         } else {
             print("UserManager: Successfully signed out")
-            // Auth state listener in AppState will handle state updates
+            // Auth state listener will handle state updates
         }
     }
-    
+
     // MARK: - User Profile Management
     
-    func updateUserProfile(name: String, dateOfBirth: Date, role: UserRole) -> Bool {
+    /// Update user profile information
+    func updateProfile(name: String, email: String, dateOfBirth: Date, role: UserRole) -> Bool {
         guard let currentUser = currentUser else {
-            self.authError = .userNotFound("No user is currently logged in")
+            authError = .userNotFound("No user is currently logged in")
             return false
         }
         
-        // Update user model
-        currentUser.name = name
-        currentUser.dateOfBirth = dateOfBirth
-        currentUser.role = role
+        // Create updated user
+        let updatedUser = currentUser
+        updatedUser.name = name
+        updatedUser.email = email
+        updatedUser.dateOfBirth = dateOfBirth
+        updatedUser.role = role
         
-        // Update in CoreData
-        if !updateUserInCoreData(currentUser) {
-            self.authError = .failedToUpdate("Failed to update user profile in database")
-            return false
+        // Update user in CoreData
+        saveUserToCoreData(updatedUser)
+        
+        // Update Firebase profile if email or name changed
+        if name != currentUser.name || email != currentUser.email {
+            updateFirebaseProfile(name: name, email: email)
         }
         
-        // Update in Firebase if we have app state reference
-        if let appState = appState {
-            startUpdateUserProfileProcess(appState: appState, name: name)
-        } else {
-            print("UserManager: No app state reference for Firebase profile update")
-        }
-        
-        self.currentUser = currentUser
         return true
     }
     
-    // Helper method to update user profile in Firebase asynchronously
-    private func startUpdateUserProfileProcess(appState: AppState, name: String) {
-        // Using runAsync helper instead of ConcurrencyTask
+    private func updateFirebaseProfile(name: String, email: String) {
         runAsync {
-            let result = await appState.authService.updateUserDisplayName(name)
-            
-            if case .failure(let error) = result {
-                print("UserManager: Error updating Firebase profile: \(error.localizedDescription)")
-                await runOnMainActor {
-                    self.authError = .failedToUpdate("Error updating profile: \(error.localizedDescription)")
-                }
-            } else {
-                print("UserManager: Firebase profile updated successfully")
-            }
-        }
-    }
-    
-    // Update user email
-    func updateUserEmail(to newEmail: String) -> Bool {
-        guard let appState = appState else {
-            self.authError = .invalidUserData("Internal error: Missing app state reference")
-            return false
-        }
-        
-        guard let currentUser = self.currentUser else {
-            self.authError = .userNotFound("No user is currently logged in")
-            return false
-        }
-        
-        // Start email update process in the background
-        startEmailUpdateProcess(appState: appState, newEmail: newEmail, user: currentUser)
-        
-        return true // Since we're starting an async process, return success for now
-    }
-    
-    // Update user in CoreData - updated to use Result
-    private func updateUserInCoreData(_ user: User) -> Bool {
-        let context = coreDataManager.viewContext
-        let result = userDataManager.saveOrUpdate(model: user, idValue: user.id, in: context)
-        
-        switch result {
-        case .success(_):
-            return true
-        case .failure(let error):
-            print("Error updating user in CoreData: \(error.localizedDescription)")
-            self.authError = .coreDataError("Database error: \(error.localizedDescription)")
-            return false
-        }
-    }
-    
-    // Helper method to perform email update asynchronously
-    private func startEmailUpdateProcess(appState: AppState, newEmail: String, user: User) {
-        // Using runAsync helper instead of ConcurrencyTask
-        runAsync {
-            let result = await appState.authService.updateUserEmail(newEmail)
-            
-            await runOnMainActor {
+            // Update display name if changed
+            if let currentUser = self.currentUser, name != currentUser.name {
+                let result = await self.authService.updateUserDisplayName(name)
                 if case .failure(let error) = result {
-                    self.authError = .failedToUpdate("Failed to update email: \(error.localizedDescription)")
-                } else {
-                    print("UserManager: Email updated successfully")
-                    // Update the local user model
-                    user.email = newEmail
-                    
-                    // Save to CoreData
-                    if !self.updateUserInCoreData(user) {
-                        self.authError = .failedToUpdate("Failed to update email in local database")
+                    await runOnMainActor {
+                        self.authError = .failedToUpdate("Failed to update display name: \(error.localizedDescription)")
                     }
-                    
-                    // Update the published property to trigger UI updates
-                    self.currentUser = user
                 }
             }
-        }
-    }
-    
-    // Update user password
-    func updatePassword(currentPassword: String, newPassword: String) -> Bool {
-        guard let appState = appState else {
-            self.authError = .invalidUserData("Internal error: Missing app state reference")
-            return false
-        }
-        
-        guard let currentUser = self.currentUser else {
-            self.authError = .userNotFound("No user is currently logged in")
-            return false
-        }
-        
-        let email = currentUser.email
-        if email.isEmpty {
-            self.authError = .invalidUserData("User email is missing")
-            return false
-        }
-        
-        // Start password reset process in the background
-        startPasswordResetProcess(appState: appState, email: email)
-        
-        return true // Since we're starting an async process, return success for now
-    }
-    
-    // Helper method to perform password reset asynchronously
-    private func startPasswordResetProcess(appState: AppState, email: String) {
-        // Using runAsync helper instead of ConcurrencyTask
-        runAsync {
-            let result = await appState.authService.resetPassword(for: email)
             
-            await runOnMainActor {
+            // Update email if changed
+            if let currentUser = self.currentUser, email != currentUser.email {
+                let result = await self.authService.updateUserEmail(email)
                 if case .failure(let error) = result {
-                    self.authError = .failedToUpdate("Failed to reset password: \(error.localizedDescription)")
-                } else {
-                    print("UserManager: Password reset email sent successfully")
-                    // Just clear the authError since we're successful
-                    self.authError = nil
-                    // Notify any listeners that the password reset was successful
-                    NotificationCenter.default.post(
-                        name: Notification.Name("PasswordResetSuccessful"),
-                        object: nil,
-                        userInfo: ["message": "A password reset email has been sent to your email address."]
-                    )
+                    await runOnMainActor {
+                        self.authError = .failedToUpdate("Failed to update email: \(error.localizedDescription)")
+                    }
                 }
             }
         }
     }
     
-    // Reset user data - keep for debugging
-    func resetUserData() {
-        UserDefaults.standard.removeObject(forKey: userDefaultsKey)
-        UserDefaults.standard.removeObject(forKey: isLoggedInKey)
-        if let appState = appState {
-            let _ = appState.authService.signOut()
-        }
-        self.currentUser = nil
-        self.isLoggedIn = false
+    // MARK: - Protocol Conformance Methods
+    
+    /// Set the current user directly
+    func setCurrentUser(_ user: User?) {
+        self.currentUser = user
+    }
+    
+    /// Set the login state directly
+    func setLoggedIn(_ isLoggedIn: Bool) {
+        self.isLoggedIn = isLoggedIn
     }
     
     // MARK: - CoreData methods

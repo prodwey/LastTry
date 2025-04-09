@@ -161,12 +161,12 @@ struct AddTaskView: View {
                         isCreatingTask = false
                         
                         // Clear error after user has seen it
-                        appState.taskManager.taskError = nil
+                        appState.taskManager.setTaskError(nil)
                     }
                 }
                 .onDisappear {
                     // Clear any errors when leaving the view
-                    appState.taskManager.taskError = nil
+                    appState.taskManager.setTaskError(nil)
                 }
             }
         }
