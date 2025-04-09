@@ -31,6 +31,9 @@ protocol ErrorHandlingServiceProtocol: AnyObject {
     /// Handle an optional error, reporting it if non-nil
     @discardableResult
     func handleOptionalError(_ error: Error?) -> Bool
+    
+    /// Static method to report an error
+    static func report(error: Any)
 }
 
 // MARK: - Authentication Service Protocol

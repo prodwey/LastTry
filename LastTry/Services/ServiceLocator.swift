@@ -56,8 +56,13 @@ class ServiceLocator {
         // Register all existing services from the AppState
         // Register concrete implementations under their original types for compatibility
         register(appState.userManager, for: UserManager.self)
-        register(appState.sessionManager, for: SessionManager.self)
-        register(appState.songManager, for: SongManager.self)
+        
+        // For SessionManager, always use the shared instance
+        register(SessionManager.shared, for: SessionManager.self)
+        
+        // For SongManager, always use the shared instance
+        register(SongManager.shared, for: SongManager.self)
+        
         register(appState.taskManager, for: TaskManager.self)
         register(appState.newsManager, for: NewsManager.self)
         

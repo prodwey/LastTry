@@ -92,6 +92,7 @@ struct DashboardView: View {
         ScrollView {
             VStack(spacing: 24) {
                 quickActionsSection
+                servicesDemoSection
                 recentlyPlayedSection
                 tasksSection
                 upcomingSessionsSection
@@ -157,6 +158,82 @@ struct DashboardView: View {
             }
         }
         .padding(.top)
+    }
+    
+    private var servicesDemoSection: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            SectionHeaderView(title: "Service Demos")
+            
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 16) {
+                    NavigationLink(destination: LoginView.AuthManagerDemoView()) {
+                        DemoCardView(
+                            title: "Authentication",
+                            icon: "person.badge.key.fill",
+                            color: .purple,
+                            description: "Using AuthManager"
+                        )
+                    }
+                    
+                    NavigationLink(destination: SongPlayerView.AudioManagerDemoView()) {
+                        DemoCardView(
+                            title: "Audio Playback",
+                            icon: "play.circle.fill",
+                            color: .blue,
+                            description: "Using AudioManager"
+                        )
+                    }
+                    
+                    NavigationLink(destination: SongLibraryDemoView()) {
+                        DemoCardView(
+                            title: "Song Library",
+                            icon: "music.note.list",
+                            color: .green,
+                            description: "Using SongLibrary"
+                        )
+                    }
+                    
+                    NavigationLink(destination: SessionLibraryDemoView()) {
+                        DemoCardView(
+                            title: "Session Library",
+                            icon: "calendar",
+                            color: .orange,
+                            description: "Using SessionLibrary"
+                        )
+                    }
+                }
+                .padding(.horizontal)
+            }
+        }
+    }
+    
+    // Helper view for service demos
+    private struct DemoCardView: View {
+        let title: String
+        let icon: String
+        let color: Color
+        let description: String
+        
+        var body: some View {
+            VStack(alignment: .leading, spacing: 8) {
+                Image(systemName: icon)
+                    .font(.title)
+                    .foregroundColor(color)
+                
+                Text(title)
+                    .font(.headline)
+                    .foregroundColor(.white)
+                
+                Text(description)
+                    .font(.caption)
+                    .foregroundColor(.gray)
+                    .lineLimit(2)
+            }
+            .frame(width: 150, height: 120)
+            .padding()
+            .background(Color.appElevatedBackground)
+            .cornerRadius(12)
+        }
     }
     
     private var recentlyPlayedSection: some View {

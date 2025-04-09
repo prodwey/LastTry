@@ -151,9 +151,9 @@ class SessionDataManager: CoreDataManaging {
     }
     
     func createModel(from entity: SessionEntity) -> Session {
-        // Get the arrays directly, avoiding conditional downcasts
-        let producers = entity.additionalProducers as? [String] ?? []
-        let singers = entity.singers as? [String] ?? []
+        // Get the arrays directly, no conditional downcasts
+        let producers = entity.additionalProducers as [String]? ?? []
+        let singers = entity.singers as [String]? ?? []
         
         return Session(
             id: entity.id ?? UUID().uuidString,
@@ -174,6 +174,11 @@ class SessionDataManager: CoreDataManaging {
 }
 
 class SessionManager: ObservableObject {
+    // MARK: - Singleton
+    
+    /// Shared instance for global access
+    static let shared = SessionManager()
+    
     @Published var sessions: [Session] = []
     @Published var sessionError: SessionError? = nil
     
@@ -181,6 +186,24 @@ class SessionManager: ObservableObject {
     private let coreDataManager = CoreDataManager.shared
     // Reference to the session data manager
     private let sessionDataManager = SessionDataManager()
+    // Reference to error handling service
+    private let errorService: ErrorHandlingServiceProtocol
+    
+    // MARK: - Initialization
+    
+    /// Private initializer for singleton pattern
+    private init() {
+        self.errorService = ErrorHandlingService.shared
+        // Load sessions from CoreData on initialization
+        loadSessions()
+        print("SessionManager: Initialized shared instance")
+    }
+    
+    /// Dependency injection initializer for testing or custom configurations
+    init(errorService: ErrorHandlingServiceProtocol) {
+        self.errorService = errorService
+        print("SessionManager: Initialized with custom error handling service")
+    }
     
     func bookSession(studio: Studio, mainProducer: String, additionalProducers: [String], 
                     singers: [String], date: Date, duration: TimeInterval) -> Bool {
@@ -188,17 +211,20 @@ class SessionManager: ObservableObject {
         // Validate inputs
         guard duration > 0 else {
             sessionError = .invalidDuration
+            errorService.reportError(sessionError!)
             return false
         }
         
         guard date > Date() else {
             sessionError = .pastDateBooking
+            errorService.reportError(sessionError!)
             return false
         }
         
         // Check for double booking
         if isStudioBooked(studio: studio, date: date, duration: duration) {
             sessionError = .schedulingConflict("Studio \(studio.rawValue) is already booked for this time slot")
+            errorService.reportError(sessionError!)
             return false
         }
         
@@ -239,6 +265,7 @@ class SessionManager: ObservableObject {
             return true
         case .failure(let error):
             sessionError = .failedToSave("Failed to save session: \(error.localizedDescription)")
+            errorService.reportError(sessionError!)
             return false
         }
     }
@@ -334,6 +361,7 @@ class SessionManager: ObservableObject {
         case .failure(let error):
             print("Error loading sessions from CoreData: \(error.localizedDescription)")
             sessionError = .failedToLoad("Failed to load sessions: \(error.localizedDescription)")
+            errorService.reportError(sessionError!)
         }
     }
     
@@ -356,22 +384,170 @@ class SessionManager: ObservableObject {
         }
     }
     
-    // Delete a session - updated to use Result
-    func deleteSession(withID id: String) -> Bool {
+    // Update session 
+    func updateSession(_ session: Session) -> Bool {
         let result = sessionDataManager.performBackgroundTask { context in
-            return self.sessionDataManager.deleteById(id: id, in: context)
+            let saveResult = self.sessionDataManager.saveOrUpdate(
+                model: session, 
+                idValue: session.id, 
+                in: context
+            )
+            
+            switch saveResult {
+            case .success(_):
+                return .success(())
+            case .failure(let error):
+                return .failure(error)
+            }
         }
         
         switch result {
         case .success(_):
-            // Remove from the published array
+            // Update the session in the array
+            if let index = sessions.firstIndex(where: { $0.id == session.id }) {
+                DispatchQueue.main.async {
+                    self.sessions[index] = session
+                }
+            }
+            return true
+        case .failure(let error):
+            sessionError = .failedToUpdate("Failed to update session: \(error.localizedDescription)")
+            errorService.reportError(sessionError!)
+            return false
+        }
+    }
+    
+    // Delete session
+    func deleteSession(withID id: String) -> Bool {
+        // Use regular performBackgroundTask instead of performBackgroundTaskWithResult
+        let result = sessionDataManager.performBackgroundTask { context in
+            // Fetch the entity to delete
+            let fetchRequest: NSFetchRequest<SessionEntity> = SessionEntity.fetchRequest()
+            fetchRequest.predicate = NSPredicate(format: "id == %@", id)
+            
+            do {
+                let results = try context.fetch(fetchRequest)
+                if let sessionEntity = results.first {
+                    // Delete the entity
+                    context.delete(sessionEntity)
+                    try context.save()
+                    return .success(())
+                } else {
+                    return .failure(CoreDataError.entityNotFound)
+                }
+            } catch {
+                return .failure(CoreDataError.deleteFailed(error.localizedDescription))
+            }
+        }
+        
+        switch result {
+        case .success:
+            // Remove the session from the array
             DispatchQueue.main.async {
                 self.sessions.removeAll { $0.id == id }
             }
             return true
         case .failure(let error):
             sessionError = .failedToDelete("Failed to delete session: \(error.localizedDescription)")
+            errorService.reportError(sessionError!)
             return false
         }
+    }
+}
+
+// MARK: - Session Library Helper
+
+/// Global access to session functionality
+enum SessionLibrary {
+    /// Access the shared session manager instance
+    static var manager: SessionManager {
+        return SessionManager.shared
+    }
+    
+    /// All sessions
+    static var sessions: [Session] {
+        return manager.sessions
+    }
+    
+    /// Past sessions
+    static var pastSessions: [Session] {
+        return manager.pastSessions()
+    }
+    
+    /// Upcoming sessions
+    static var upcomingSessions: [Session] {
+        return manager.upcomingSessions()
+    }
+    
+    /// Book a new session
+    /// - Parameters:
+    ///   - studio: Studio to book
+    ///   - mainProducer: Primary producer name
+    ///   - additionalProducers: Additional producers (optional)
+    ///   - singers: Singers for the session
+    ///   - date: Session date
+    ///   - duration: Session duration in minutes
+    /// - Returns: Success indicator
+    static func bookSession(studio: Studio, mainProducer: String, additionalProducers: [String] = [], 
+                           singers: [String], date: Date, duration: TimeInterval) -> Bool {
+        return manager.bookSession(
+            studio: studio,
+            mainProducer: mainProducer,
+            additionalProducers: additionalProducers,
+            singers: singers,
+            date: date,
+            duration: duration
+        )
+    }
+    
+    /// Update an existing session
+    /// - Parameter session: Updated session object
+    /// - Returns: Success indicator
+    static func updateSession(_ session: Session) -> Bool {
+        return manager.updateSession(session)
+    }
+    
+    /// Delete a session
+    /// - Parameter id: Session ID to delete
+    /// - Returns: Success indicator
+    static func deleteSession(id: String) -> Bool {
+        return manager.deleteSession(withID: id)
+    }
+    
+    /// Check if a studio is available for booking
+    /// - Parameters:
+    ///   - studio: Studio to check
+    ///   - date: Requested date
+    ///   - duration: Requested duration
+    /// - Returns: True if studio is already booked
+    static func isStudioBooked(studio: Studio, date: Date, duration: TimeInterval) -> Bool {
+        return manager.isStudioBooked(studio: studio, date: date, duration: duration)
+    }
+    
+    /// Get sessions for a specific month
+    /// - Parameters:
+    ///   - year: Year
+    ///   - month: Month (1-12)
+    /// - Returns: Array of sessions in that month
+    static func sessionsForMonth(year: Int, month: Int) -> [Session] {
+        return manager.sessionsForMonth(year: year, month: month)
+    }
+    
+    /// Add a song to a session
+    /// - Parameters:
+    ///   - sessionId: Session ID
+    ///   - song: Song to add
+    static func addSongToSession(sessionId: String, song: Song) {
+        manager.addSongToSession(sessionId: sessionId, song: song)
+    }
+    
+    /// Load all sessions from storage
+    static func loadAllSessions() {
+        manager.loadSessions()
+    }
+    
+    /// Clear any session errors
+    static func clearError() {
+        manager.sessionError = nil
     }
 } 
