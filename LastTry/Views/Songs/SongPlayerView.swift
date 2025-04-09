@@ -9,6 +9,7 @@ struct SongPlayerView: View {
     @State private var sliderValue: Double = 0
     @State private var isEditing = false
     @State private var timer: Timer? = nil
+    @State private var showAudioManagerDemo = false
     
     var body: some View {
         ZStack {
@@ -110,8 +111,19 @@ struct SongPlayerView: View {
                 .padding(.top, 16)
                 
                 Spacer()
+                
+                // Demo Button
+                Button("Try New Audio Manager Demo") {
+                    showAudioManagerDemo = true
+                }
+                .font(.footnote)
+                .foregroundColor(.gray)
+                .padding(.bottom, 20)
             }
             .padding()
+        }
+        .sheet(isPresented: $showAudioManagerDemo) {
+            AudioManagerDemoView()
         }
         .onAppear {
             startTimer()

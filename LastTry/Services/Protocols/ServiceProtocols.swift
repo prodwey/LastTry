@@ -93,6 +93,15 @@ protocol AudioServiceProtocol {
     /// The currently playing song, if any
     var currentSong: Song? { get }
     
+    /// Publisher for observing current time changes
+    var currentTimePublisher: AnyPublisher<TimeInterval, Never> { get }
+    
+    /// Publisher for observing playback state changes
+    var isPlayingPublisher: AnyPublisher<Bool, Never> { get }
+    
+    /// Publisher for observing current song changes
+    var currentSongPublisher: AnyPublisher<Song?, Never> { get }
+    
     /// Play a specific song
     func playSong(_ song: Song) throws
     

@@ -30,8 +30,8 @@ class AppState: ObservableObject {
     // Authentication service - now using the shared singleton
     @Published var authService: AuthenticationServiceProtocol
     
-    // Audio service - added for real audio playback
-    @Published var audioService = AudioService()
+    // Audio service - now using the shared singleton
+    @Published var audioService: AudioServiceProtocol
     
     // Centralized error handling service - now accessing the shared singleton
     // We keep this for backward compatibility during refactoring
@@ -62,6 +62,9 @@ class AppState: ObservableObject {
         
         // Use the shared instance of AuthenticationService
         self.authService = AuthenticationService.shared
+        
+        // Use the shared instance of AudioService
+        self.audioService = AudioService.shared
         
         // Initialize error-aware services
         self.songManager = SongManager(errorService: errorService)
@@ -158,7 +161,7 @@ class AppState: ObservableObject {
         print("AppState: Setting up audio service subscription")
         
         // Sync AudioService's currentTime with our currentPlaybackPosition
-        audioService.$currentTime
+        audioService.currentTimePublisher
             .receive(on: RunLoop.main)
             .sink { [weak self] time in
                 self?.currentPlaybackPosition = time
@@ -166,7 +169,7 @@ class AppState: ObservableObject {
             .store(in: &cancellables)
         
         // Sync AudioService's isPlaying with our isPlaying
-        audioService.$isPlaying
+        audioService.isPlayingPublisher
             .receive(on: RunLoop.main)
             .sink { [weak self] isPlaying in
                 self?.isPlaying = isPlaying
@@ -174,7 +177,7 @@ class AppState: ObservableObject {
             .store(in: &cancellables)
         
         // Sync AudioService's currentSong with our currentPlayingSong
-        audioService.$currentSong
+        audioService.currentSongPublisher
             .receive(on: RunLoop.main)
             .sink { [weak self] song in
                 self?.currentPlayingSong = song
@@ -370,12 +373,12 @@ class AppState: ObservableObject {
         // Clear any previous error
         audioError = nil
         
-        // Try to play the song using the audio service
+        // Try to play the song using the audio service (which is now AudioService.shared)
         do {
             try audioService.playSong(song)
         } catch let error {
-            // Use the new error handling service
-            errorService.reportError(error)
+            // Use the error handling service to report the error
+            ErrorReporter.report(error)
             
             // Keep setting the audioError for backward compatibility
             if let audioErr = error as? AudioError {
