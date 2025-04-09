@@ -53,17 +53,59 @@ class AppState: ObservableObject {
     init() {
         print("AppState: Initializing")
         
-        // Initialize service dependencies using shared instances
-        self.errorService = ErrorHandlingService.shared
-        self.authService = AuthenticationService.shared
-        self.audioService = AudioService.shared
+        // Get services from ServiceLocator instead of creating them directly
+        let locator = ServiceLocator.shared
         
-        // Initialize manager dependencies using shared instances
-        self.userManager = UserManager.shared
-        self.sessionManager = SessionManager.shared
-        self.songManager = SongManager.shared
-        self.taskManager = TaskManager.shared
-        self.newsManager = NewsManager.shared
+        // Get services
+        guard let errorService = locator.resolve(ErrorHandlingServiceProtocol.self),
+              let authService = locator.resolve(AuthenticationServiceProtocol.self),
+              let audioService = locator.resolve(AudioServiceProtocol.self),
+              let userManager = locator.resolve(UserManagerProtocol.self),
+              let taskManager = locator.resolve(TaskManagerProtocol.self),
+              let newsManager = locator.resolve(NewsManagerProtocol.self),
+              let sessionManager = locator.resolve(SessionManager.self),
+              let songManager = locator.resolve(SongManager.self) else {
+            
+            // Fallback to direct instantiation if ServiceLocator is not properly initialized
+            print("AppState: Services not found in ServiceLocator, falling back to direct instantiation")
+            self.errorService = ErrorHandlingService.shared
+            self.authService = AuthenticationService.shared
+            self.audioService = AudioService.shared
+            self.userManager = UserManager.shared
+            self.sessionManager = SessionManager.shared
+            self.songManager = SongManager.shared
+            self.taskManager = TaskManager.shared
+            self.newsManager = NewsManager.shared
+            
+            // Check for CoreData migration need on first launch
+            checkAndPerformMigration()
+            
+            // Subscribe to auth state changes from AuthenticationService
+            setupAuthStateSubscription()
+            
+            // Subscribe to audio service state changes
+            setupAudioServiceSubscription()
+            
+            // Start monitoring resources
+            setupResourceMonitoring()
+            
+            // Load initial data
+            loadInitialData()
+            
+            return
+        }
+        
+        // Store service references
+        self.errorService = errorService
+        self.authService = authService
+        self.audioService = audioService
+        self.userManager = userManager
+        self.sessionManager = sessionManager
+        self.songManager = songManager
+        self.taskManager = taskManager
+        self.newsManager = newsManager
+        
+        print("AppState: Successfully retrieved services from ServiceLocator")
         
         // Check for CoreData migration need on first launch
         checkAndPerformMigration()
@@ -79,19 +121,6 @@ class AppState: ObservableObject {
         
         // Load initial data
         loadInitialData()
-        
-        // Register existing services with ServiceLocator without changing functionality
-        // This is part of the migration strategy to gradually refactor the application
-        setupServiceLocator()
-    }
-    
-    // MARK: - Service Locator Setup
-    
-    /// Register existing services with the ServiceLocator
-    /// This allows a gradual migration to DI without breaking existing code
-    private func setupServiceLocator() {
-        // Register all existing services with the ServiceLocator
-        ServiceLocator.shared.registerExistingServices(from: self)
     }
     
     // MARK: - Example of using ServiceLocator
