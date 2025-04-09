@@ -542,13 +542,13 @@ enum ErrorReporter {
     /// Report an error to the global error handling service
     /// - Parameter error: The error to report
     static func report(_ error: Error) {
-        ErrorHandlingService.shared.reportError(error)
+        ErrorHandlingService.report(error: error)
     }
     
     /// Report an AppError to the global error handling service
     /// - Parameter error: The AppError to report
     static func report(_ error: AppError) {
-        ErrorHandlingService.shared.reportError(error)
+        ErrorHandlingService.report(error: error)
     }
     
     /// Handle a Result object, automatically reporting any error it contains

@@ -22,8 +22,8 @@ enum AppLanguage: String, CaseIterable, Identifiable {
 
 class AppState: ObservableObject {
     @Published var userManager = UserManager()
-    @Published var sessionManager = SessionManager()
-    @Published var songManager: SongManager!
+    @Published var sessionManager: SessionManager
+    @Published var songManager: SongManager
     @Published var taskManager = TaskManager()
     @Published var newsManager = NewsManager()
     
@@ -66,8 +66,11 @@ class AppState: ObservableObject {
         // Use the shared instance of AudioService
         self.audioService = AudioService.shared
         
-        // Initialize error-aware services
-        self.songManager = SongManager(errorService: errorService)
+        // Use the shared instance of SessionManager
+        self.sessionManager = SessionManager.shared
+        
+        // Use the shared instance of SongManager
+        self.songManager = SongManager.shared
         
         // Set up connection between AppState and UserManager
         userManager.appState = self

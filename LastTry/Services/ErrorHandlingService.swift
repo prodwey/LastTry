@@ -9,6 +9,22 @@ class ErrorHandlingService: ObservableObject, ErrorHandlingServiceProtocol {
     /// Shared instance for global access
     static let shared = ErrorHandlingService()
     
+    // MARK: - Static Methods
+    
+    /// Static method to report an error
+    /// - Parameter error: The error to report
+    static func report(error: Any) {
+        if let appError = error as? AppError {
+            shared.reportError(appError)
+        } else if let stringError = error as? String {
+            shared.reportError(AppError.general(.internalError(stringError)))
+        } else if let error = error as? Error {
+            shared.reportError(error)
+        } else {
+            shared.reportError(AppError.general(.internalError("\(error)")))
+        }
+    }
+    
     // MARK: - Published Properties
     
     /// The current error being displayed to the user

@@ -312,6 +312,11 @@ class SongDataManager: CoreDataManaging {
 }
 
 class SongManager: ObservableObject {
+    // MARK: - Singleton
+    
+    /// Shared instance for global access
+    static let shared = SongManager()
+    
     @Published var songs: [Song] = []
     @Published var songError: SongError? = nil
     
@@ -324,16 +329,32 @@ class SongManager: ObservableObject {
     // Reference to caching services
     private let songCacheService = SongCacheService.shared
     private let audioCacheService = AudioCacheService.shared
-    // Reference to error handling service (optional)
-    private weak var errorService: ErrorHandlingServiceProtocol?
+    // Reference to error handling service
+    private let errorService: any ErrorHandlingServiceProtocol
     
     // Listen for file upload status updates
     private var cancellables = Set<AnyCancellable>()
     
-    init(errorService: ErrorHandlingServiceProtocol? = nil) {
-        // Use provided error service or the shared instance
-        self.errorService = errorService ?? ErrorHandlingService.shared
-        
+    // MARK: - Initialization
+    
+    /// Private initializer for singleton pattern, uses shared ErrorHandlingService
+    private init() {
+        self.errorService = ErrorHandlingService.shared
+        setupSubscriptions()
+        loadSongs()
+        print("SongManager: Initialized shared instance")
+    }
+    
+    /// Dependency injection initializer for testing or custom configurations
+    init(errorService: ErrorHandlingServiceProtocol) {
+        self.errorService = errorService
+        setupSubscriptions()
+        // Don't automatically load songs in the test initializer
+        print("SongManager: Initialized with custom error handling service")
+    }
+    
+    // Set up subscriptions
+    private func setupSubscriptions() {
         // Set up subscription to file upload status
         filePersistenceHelper.uploadStatus
             .receive(on: DispatchQueue.main)
@@ -356,35 +377,35 @@ class SongManager: ObservableObject {
                         self.songError = .fileError(error.localizedDescription)
                     }
                     
-                    // Report to error service if available
-                    self.errorService?.reportError(self.songError!)
+                    // Report to error service
+                    self.errorService.reportError(self.songError!)
                 case .uploading, .completed:
                     // These are handled by specific methods
                     break
                 }
             }
             .store(in: &cancellables)
-        
-        // Load songs from CoreData on initialization
-        loadSongs()
     }
     
     func addSong(name: String, fileURL: URL, artists: [Artist], lyrics: String?, sessionId: String) -> Bool {
         // Validate session ID
         guard !sessionId.isEmpty else {
             songError = .failedToSave("Session ID is required")
+            errorService.reportError(songError!)
             return false
         }
         
         // Validate file extension
         guard let format = AudioFormat.fromFileExtension(fileURL.pathExtension) else {
             songError = .invalidFileFormat("Unsupported file format: \(fileURL.pathExtension)")
+            errorService.reportError(songError!)
             return false
         }
         
         // For file URLs, validate the file exists
         if fileURL.isFileURL && !FileManager.default.fileExists(atPath: fileURL.path) {
             songError = .fileNotFound
+            errorService.reportError(songError!)
             return false
         }
         
@@ -631,7 +652,7 @@ class SongManager: ObservableObject {
             self.songError = songError
             
             // Report to error handling service if available
-            self.errorService?.reportError(songError)
+            self.errorService.reportError(songError)
             
             print("Error loading songs from CoreData: \(error.localizedDescription)")
         }
@@ -824,5 +845,70 @@ class SongManager: ObservableObject {
     func clearCaches() {
         songCacheService.cacheSongs(songs) // Refresh the metadata cache with current state
         CacheManager.shared.audioDataCache.clearCache() // Clear audio data
+    }
+}
+
+// MARK: - Song Library Helper
+
+/// Global access to song functionality
+enum SongLibrary {
+    /// Access the shared song manager instance
+    static var manager: SongManager {
+        return SongManager.shared
+    }
+    
+    /// All songs in the library
+    static var songs: [Song] {
+        return manager.songs
+    }
+    
+    /// Add a song to the library
+    /// - Parameters:
+    ///   - name: Song name
+    ///   - fileURL: URL to the audio file
+    ///   - artists: Array of artists
+    ///   - lyrics: Optional lyrics
+    ///   - sessionId: ID of the session this song belongs to
+    /// - Returns: Success indicator
+    static func addSong(name: String, fileURL: URL, artists: [Artist], lyrics: String?, sessionId: String) -> Bool {
+        return manager.addSong(name: name, fileURL: fileURL, artists: artists, lyrics: lyrics, sessionId: sessionId)
+    }
+    
+    /// Delete a song from the library
+    /// - Parameter songId: ID of the song to delete
+    /// - Returns: Success indicator
+    static func deleteSong(id songId: String) -> Bool {
+        return manager.deleteSong(withID: songId)
+    }
+    
+    /// Search for songs matching a query
+    /// - Parameter query: Search query
+    /// - Returns: Array of matching songs
+    static func search(_ query: String) -> [Song] {
+        return manager.searchSongs(query: query)
+    }
+    
+    /// Load all songs from storage
+    static func loadAllSongs() {
+        manager.loadSongs()
+    }
+    
+    /// Load songs for a specific session
+    /// - Parameter sessionId: Session ID
+    static func loadSongsForSession(sessionId: String) {
+        manager.loadSongsForSession(sessionId: sessionId)
+    }
+    
+    /// Add a song to a session
+    /// - Parameters:
+    ///   - sessionId: Session ID
+    ///   - song: Song to add
+    static func addSongToSession(sessionId: String, song: Song) {
+        SessionLibrary.addSongToSession(sessionId: sessionId, song: song)
+    }
+    
+    /// Clear any song errors
+    static func clearError() {
+        manager.songError = nil
     }
 } 
