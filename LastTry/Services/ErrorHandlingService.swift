@@ -3,7 +3,7 @@ import Combine
 import SwiftUI
 
 /// A service that provides centralized error handling and reporting for the entire application
-class ErrorHandlingService: ObservableObject {
+class ErrorHandlingService: ObservableObject, ErrorHandlingServiceProtocol {
     // MARK: - Published Properties
     
     /// The current error being displayed to the user

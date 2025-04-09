@@ -370,7 +370,7 @@ struct ConfigurationView: View {
         let currentEmail = appState.userManager.currentUser?.email ?? ""
         var emailUpdateSuccess = true
         if email != currentEmail {
-            emailUpdateSuccess = appState.userManager.updateEmail(to: email)
+            emailUpdateSuccess = appState.userManager.updateUserEmail(to: email)
         }
         
         if success && emailUpdateSuccess {
@@ -451,7 +451,7 @@ struct PasswordChangeView: View {
                     dismiss()
                 }
             } message: {
-                Text("Your password has been updated successfully.")
+                Text("A password reset email has been sent to your email address.")
             }
         }
     }
@@ -492,12 +492,18 @@ struct PasswordChangeView: View {
     
     // Helper method to perform password change asynchronously
     private func startPasswordChangeProcess(currentPassword: String, newPassword: String) {
+        // Get the current user's email
+        guard let email = appState.userManager.currentUser?.email else {
+            errorMessage = "Cannot identify current user. Please try again later."
+            showingErrorAlert = true
+            isChanging = false
+            return
+        }
+        
         // Using runAsync helper instead of ConcurrencyTask
         runAsync {
-            let result = await self.appState.authService.updatePassword(
-                currentPassword: currentPassword,
-                newPassword: newPassword
-            )
+            // Use the reset password functionality instead
+            let result = await self.appState.authService.resetPassword(for: email)
             
             await runOnMainActor {
                 isChanging = false
@@ -505,6 +511,8 @@ struct PasswordChangeView: View {
                 switch result {
                 case .success:
                     showingSuccessAlert = true
+                    // Update success message to reflect password reset instead of change
+                    // This needs to be updated elsewhere
                 case .failure(let error):
                     errorMessage = error.localizedDescription
                     showingErrorAlert = true

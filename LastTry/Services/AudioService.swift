@@ -22,7 +22,7 @@ enum AudioError: Error, LocalizedError {
     }
 }
 
-class AudioService: NSObject, ObservableObject {
+class AudioService: NSObject, ObservableObject, AudioServiceProtocol {
     // Public properties that the UI can observe
     @Published var isPlaying: Bool = false
     @Published var currentTime: TimeInterval = 0
