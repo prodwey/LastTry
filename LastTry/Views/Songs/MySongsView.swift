@@ -122,11 +122,7 @@ struct MySongsView: View {
                             isShowingFullPlayer = true
                         } else {
                             // Otherwise, start playing the song
-                            do {
-                                appState.playSong(song)
-                            } catch {
-                                // This gets handled by the playSong method now
-                            }
+                            appState.playSong(song)
                         }
                     }
             }

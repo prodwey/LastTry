@@ -367,6 +367,10 @@ extension SessionError {
             return .data(.invalidData(entity: "Session", reason: "Cannot book session in the past"))
         case .invalidDuration:
             return .data(.invalidData(entity: "Session", reason: "Invalid duration"))
+        case .studioUnavailable(let message):
+            return .general(.resourceUnavailable("Studio unavailable: \(message)"))
+        case .coreDataError(let message):
+            return .data(.failedToLoad(entity: "Session", reason: message))
         }
     }
 }
@@ -375,7 +379,7 @@ extension SessionError {
 extension UserError {
     func toAppError() -> AppError {
         switch self {
-        case .userNotFound(let message):
+        case .userNotFound(_):
             return .authentication(.userNotFound)
         case .invalidUserData(let message):
             return .data(.invalidData(entity: "User", reason: message))
@@ -395,6 +399,38 @@ extension UserError {
             return .data(.invalidData(entity: "User", reason: "Missing required fields"))
         case .unauthorized:
             return .authentication(.unauthorized)
+        }
+    }
+}
+
+// Convert TaskError to AppError
+extension TaskError {
+    func toAppError() -> AppError {
+        switch self {
+        case .taskNotFound(let message):
+            return .data(.notFound(entity: "Task", id: message))
+        case .failedToSave(let message):
+            return .data(.failedToSave(entity: "Task", reason: message))
+        case .failedToLoad(let message):
+            return .data(.failedToLoad(entity: "Task", reason: message))
+        case .failedToUpdate(let message):
+            return .data(.failedToUpdate(entity: "Task", reason: message))
+        case .failedToDelete(let message):
+            return .data(.failedToDelete(entity: "Task", reason: message))
+        case .invalidTaskData(let message):
+            return .data(.invalidData(entity: "Task", reason: message))
+        case .unauthorizedAccess:
+            return .authentication(.unauthorized)
+        case .priorityConflict(let message):
+            return .data(.invalidData(entity: "Task", reason: "Priority conflict: \(message)"))
+        case .incompleteTask(let message):
+            return .data(.invalidData(entity: "Task", reason: "Task is incomplete: \(message)"))
+        case .overdueTask(let message):
+            return .data(.invalidData(entity: "Task", reason: "Task is overdue: \(message)"))
+        case .coreDataError(let message):
+            return .data(.failedToLoad(entity: "Task", reason: message))
+        case .aiGenerationFailed(let message):
+            return .general(.internalError("AI generation failed: \(message)"))
         }
     }
 }
@@ -477,6 +513,11 @@ class DetailedErrorProcessor {
     }
     
     static func convertSessionError(_ error: SessionError) -> DisplayError? {
+        let appError = error.toAppError()
+        return convertAppError(appError)
+    }
+    
+    static func convertTaskError(_ error: TaskError) -> DisplayError? {
         let appError = error.toAppError()
         return convertAppError(appError)
     }

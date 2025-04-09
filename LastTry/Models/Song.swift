@@ -134,7 +134,7 @@ enum AudioFormat: String, Codable, CaseIterable {
     }
 }
 
-struct Song: Identifiable, Codable {
+struct Song: Identifiable, Codable, Equatable {
     var id: String
     var name: String
     var fileURL: URL?
@@ -148,6 +148,11 @@ struct Song: Identifiable, Codable {
     
     // Player related properties are not persisted
     var audioPlayer: AVAudioPlayer?
+    
+    // Implementation of Equatable
+    static func == (lhs: Song, rhs: Song) -> Bool {
+        return lhs.id == rhs.id
+    }
     
     var formattedDuration: String {
         guard let duration = duration else { return "--:--" }
