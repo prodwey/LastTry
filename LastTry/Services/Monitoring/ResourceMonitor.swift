@@ -1,5 +1,6 @@
 import Foundation
 import Combine
+import UIKit
 
 /// Threshold levels for resource monitoring
 enum ResourceThreshold {

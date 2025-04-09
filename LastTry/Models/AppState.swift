@@ -411,7 +411,12 @@ class AppState: ObservableObject {
     
     private func loadInitialData() {
         // Load user data
-        userManager.loadCurrentUser()
+        if let currentUser = userManager.currentUser {
+            // User is already loaded
+        } else if let firebaseUser = authService.currentUser {
+            // Load user from Firebase if authenticated
+            userManager.loadUserFromFirebase(firebaseUser)
+        }
         
         // For demo, populate with some data if needed
         if CoreDataManager.shared.isFirstLaunch {
@@ -428,7 +433,7 @@ class AppState: ObservableObject {
             id: UUID().uuidString,
             name: "Demo User",
             email: "demo@example.com",
-            dateOfBirth: Calendar.current.date(byAdding: .year, value: -30, to: Date()),
+            dateOfBirth: Calendar.current.date(byAdding: .year, value: -30, to: Date()) ?? Date(),
             role: .producer
         )
         
