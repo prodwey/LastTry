@@ -198,8 +198,8 @@ struct BookSessionView: View {
         let success = appState.sessionManager.bookSession(
             studio: selectedStudio,
             mainProducer: mainProducer,
-            additionalProducers: additionalProducersList,
             singers: singersList,
+            additionalProducers: additionalProducersList,
             date: selectedDate,
             duration: duration
         )

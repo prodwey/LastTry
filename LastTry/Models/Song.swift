@@ -311,7 +311,22 @@ class SongDataManager: CoreDataManaging {
     }
 }
 
-class SongManager: ObservableObject {
+// MARK: - Song Manager Protocol
+protocol SongManagerProtocol: ObservableObject {
+    var songs: [Song] { get }
+    var songError: SongError? { get set }
+    
+    func loadSongs()
+    func addSong(name: String, fileURL: URL?, format: AudioFormat, artists: [Artist], lyrics: String?, sessionId: String) -> Bool
+    func updateSong(_ song: Song) -> Bool
+    func deleteSong(withID id: String) -> Bool
+    func searchSongs(query: String) -> [Song]
+    func getSong(withID id: String) -> Song?
+}
+
+// MARK: - Song Manager
+
+class SongManager: ObservableObject, SongManagerProtocol {
     // MARK: - Singleton
     
     /// Shared instance for global access
@@ -388,7 +403,7 @@ class SongManager: ObservableObject {
             .store(in: &cancellables)
     }
     
-    func addSong(name: String, fileURL: URL, artists: [Artist], lyrics: String?, sessionId: String) -> Bool {
+    func addSongWithURL(name: String, fileURL: URL, artists: [Artist], lyrics: String?, sessionId: String) -> Bool {
         // Validate session ID
         guard !sessionId.isEmpty else {
             songError = .failedToSave("Session ID is required")
@@ -442,6 +457,9 @@ class SongManager: ObservableObject {
             duration: duration,
             sessionId: sessionId
         )
+        
+        // Rest of implementation...
+        // (same as in the original method)
         
         // If it's a file URL, we need to permanently store the file
         if fileURL.isFileURL {
@@ -583,6 +601,25 @@ class SongManager: ObservableObject {
                 return false
             }
         }
+    }
+    
+    func addSong(name: String, fileURL: URL?, format: AudioFormat, artists: [Artist], lyrics: String?, sessionId: String) -> Bool {
+        // Validate session ID
+        guard !sessionId.isEmpty else {
+            songError = .failedToSave("Session ID is required")
+            errorService.reportError(songError!)
+            return false
+        }
+        
+        // If the URL is nil, we can't proceed
+        guard let fileURL = fileURL else {
+            songError = .fileNotFound
+            errorService.reportError(songError!)
+            return false
+        }
+        
+        // Delegate to the existing implementation that takes a URL
+        return addSongWithURL(name: name, fileURL: fileURL, artists: artists, lyrics: lyrics, sessionId: sessionId)
     }
     
     private func getFileSize(url: URL) -> Int64? {
@@ -847,6 +884,36 @@ class SongManager: ObservableObject {
         songCacheService.cacheSongs(songs) // Refresh the metadata cache with current state
         CacheManager.shared.audioDataCache.clearCache() // Clear audio data
     }
+    
+    // Update a song - implements protocol requirement
+    func updateSong(_ song: Song) -> Bool {
+        // Save to CoreData
+        let result = songDataManager.performBackgroundTaskWithResult { [weak self] context -> Result<SongEntity, Error> in
+            guard let self = self else { return .failure(SongError.failedToUpdate("Self was deallocated")) }
+            return self.songDataManager.saveWithFileReferences(
+                model: song,
+                in: context
+            ).mapError { $0 as Error }
+        }
+        
+        switch result {
+        case .success(_):
+            // Update the song in the array
+            DispatchQueue.main.async { [weak self] in
+                guard let self = self else { return }
+                if let index = self.songs.firstIndex(where: { $0.id == song.id }) {
+                    self.songs[index] = song
+                    // Update cache
+                    self.songCacheService.cacheSong(song)
+                }
+            }
+            return true
+        case .failure(let error):
+            songError = .failedToUpdate("Failed to update song: \(error.localizedDescription)")
+            errorService.reportError(songError!)
+            return false
+        }
+    }
 }
 
 // MARK: - Song Library Helper
@@ -872,7 +939,7 @@ enum SongLibrary {
     ///   - sessionId: ID of the session this song belongs to
     /// - Returns: Success indicator
     static func addSong(name: String, fileURL: URL, artists: [Artist], lyrics: String?, sessionId: String) -> Bool {
-        return manager.addSong(name: name, fileURL: fileURL, artists: artists, lyrics: lyrics, sessionId: sessionId)
+        return manager.addSong(name: name, fileURL: fileURL, format: .mp3, artists: artists, lyrics: lyrics, sessionId: sessionId)
     }
     
     /// Delete a song from the library

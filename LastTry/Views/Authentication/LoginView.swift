@@ -5,6 +5,10 @@ struct LoginView: View {
     @EnvironmentObject var appState: AppState
     @Environment(\.dismiss) private var dismiss
     
+    // Get services from ServiceLocator
+    private let authService = ServiceLocator.shared.resolve(AuthenticationServiceProtocol.self)
+    private let userManager = ServiceLocator.shared.resolve(UserManagerProtocol.self)
+    
     @State private var email = ""
     @State private var password = ""
     @State private var showErrorAlert = false
@@ -94,7 +98,7 @@ struct LoginView: View {
             AuthManagerDemoView()
         }
         .withLoading(isLoading: isLoggingIn, message: "Logging in...")
-        .onChange(of: appState.userManager.authError) { _, newError in
+        .onChange(of: userManager?.authError) { _, newError in
             if let error = newError {
                 errorMessage = error.localizedDescription
                 showErrorAlert = true
@@ -107,7 +111,7 @@ struct LoginView: View {
                 isLoggingIn = false
             }
         }
-        .onChange(of: appState.authService.authError) { _, newError in
+        .onChange(of: authService?.authError) { _, newError in
             if let error = newError {
                 errorMessage = error.localizedDescription
                 showErrorAlert = true
@@ -126,11 +130,11 @@ struct LoginView: View {
         isLoggingIn = true
         
         // Clear any previous errors
-        appState.authService.clearError()
+        authService?.clearError()
         
-        // Attempt login using the UserManager (which now uses AuthenticationService)
+        // Attempt login using the UserManager
         print("LoginView: Attempting to log in with email: \(email)")
-        appState.userManager.login(email: email, password: password)
+        userManager?.login(email: email, password: password)
         
         // Auth state will be handled by listeners
     }
@@ -146,10 +150,10 @@ struct LoginView: View {
         runAsync {
             // Clear any previous errors
             await runOnMainActor {
-                self.appState.authService.clearError()
+                self.authService?.clearError()
             }
             
-            let result = await self.appState.authService.resetPassword(for: email)
+            let result = await self.authService?.resetPassword(for: email) ?? .failure(AuthError.unknown)
             
             // Update UI on main thread
             await runOnMainActor {

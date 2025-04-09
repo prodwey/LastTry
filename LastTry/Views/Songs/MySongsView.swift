@@ -9,13 +9,18 @@ struct MySongsView: View {
     @State private var isPlaybackActive = false
     @State private var isShowingFullPlayer = false
     
+    // Get services from ServiceLocator
+    private let songManager = ServiceLocator.shared.resolve(SongManager.self)
+    private let sessionManager = ServiceLocator.shared.resolve(SessionManager.self)
+    private let errorService = ServiceLocator.shared.resolve(ErrorHandlingServiceProtocol.self)
+    
     var body: some View {
         NavigationStack {
             ZStack {
                 Color.appBackground.ignoresSafeArea()
                 
                 VStack {
-                    if appState.songManager.songs.isEmpty {
+                    if songManager?.songs.isEmpty ?? true {
                         emptySongsView
                     } else {
                         songListView
@@ -43,16 +48,16 @@ struct MySongsView: View {
                 }
             }
             // Use the centralized error handling
-            .withErrorHandling(appState.errorService)
+            .withErrorHandling(errorService!)
             // Legacy error handling for backward compatibility
-            .onChange(of: appState.songManager.songError) { _, newError in
+            .onChange(of: songManager?.songError) { _, newError in
                 if let error = newError {
                     // Forward to the centralized error handling service
-                    appState.errorService.reportError(error)
+                    errorService?.reportError(error)
                     
                     // Reset the error in song manager after handling
                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-                        appState.songManager.songError = nil
+                        songManager?.songError = nil
                     }
                 }
             }
@@ -67,7 +72,7 @@ struct MySongsView: View {
             }
             .onAppear {
                 // Refresh the songs list when view appears
-                appState.songManager.loadSongs()
+                songManager?.loadSongs()
             }
         }
     }
@@ -150,16 +155,18 @@ struct MySongsView: View {
     
     // Helper to get filtered songs based on search text
     private var filteredSongs: [Song] {
+        guard let songManager = songManager else { return [] }
+        
         if searchText.isEmpty {
-            return appState.songManager.songs
+            return songManager.songs
         } else {
-            return appState.songManager.searchSongs(query: searchText)
+            return songManager.searchSongs(query: searchText)
         }
     }
     
     // Helper to get the latest session for uploading
     private func getLatestSession() -> Session? {
-        return appState.sessionManager.sessions
+        return sessionManager?.sessions
             .filter { $0.date < Date() } // Only past sessions
             .sorted { $0.date > $1.date } // Most recent first
             .first
@@ -169,7 +176,7 @@ struct MySongsView: View {
     private func deleteSongs(at indexSet: IndexSet) {
         for index in indexSet {
             let songId = filteredSongs[index].id
-            let success = appState.songManager.deleteSong(withID: songId)
+            let success = songManager?.deleteSong(withID: songId) ?? false
             
             if !success {
                 // Error will be caught via the onChange handler

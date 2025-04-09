@@ -173,7 +173,20 @@ class SessionDataManager: CoreDataManaging {
     }
 }
 
-class SessionManager: ObservableObject {
+// MARK: - Session Manager Protocol
+protocol SessionManagerProtocol: ObservableObject {
+    var sessions: [Session] { get }
+    var sessionError: SessionError? { get set }
+    
+    func loadSessions()
+    func upcomingSessions() -> [Session]
+    func pastSessions() -> [Session]
+    func bookSession(studio: Studio, mainProducer: String, singers: [String], additionalProducers: [String], date: Date, duration: TimeInterval) -> Bool
+    func addSongToSession(sessionId: String, song: Song) -> Bool
+    func cancelSession(withID id: String) -> Bool
+}
+
+class SessionManager: ObservableObject, SessionManagerProtocol {
     // MARK: - Singleton
     
     /// Shared instance for global access
@@ -206,8 +219,37 @@ class SessionManager: ObservableObject {
         print("SessionManager: Initialized with custom error handling service")
     }
     
-    func bookSession(studio: Studio, mainProducer: String, additionalProducers: [String], 
-                    singers: [String], date: Date, duration: TimeInterval) -> Bool {
+    // MARK: - Session Background Task Helper
+    
+    /// Helper method to perform a background task that returns a Result
+    private func performBackgroundTask<T>(_ operation: @escaping (NSManagedObjectContext) -> Result<T, Error>) -> Result<T, Error> {
+        let context = coreDataManager.createBackgroundContext()
+        var result: Result<T, Error> = .failure(SessionError.failedToLoad("Operation did not complete"))
+        
+        let semaphore = DispatchSemaphore(value: 0)
+        
+        context.perform {
+            result = operation(context)
+            
+            if context.hasChanges {
+                do {
+                    try context.save()
+                } catch {
+                    result = .failure(SessionError.failedToSave("Failed to save context: \(error.localizedDescription)"))
+                }
+            }
+            
+            semaphore.signal()
+        }
+        
+        _ = semaphore.wait(timeout: .now() + 10.0)
+        
+        return result
+    }
+    
+    // MARK: - Session Operations
+    
+    func bookSession(studio: Studio, mainProducer: String, singers: [String], additionalProducers: [String], date: Date, duration: TimeInterval) -> Bool {
         
         // Validate inputs
         guard duration > 0 else {
@@ -242,7 +284,7 @@ class SessionManager: ObservableObject {
         )
         
         // Save to CoreData using Result
-        let result = sessionDataManager.performBackgroundTask { context in
+        let result = performBackgroundTask { context in
             let saveResult = self.sessionDataManager.saveOrUpdate(
                 model: newSession, 
                 idValue: newSession.id, 
@@ -302,8 +344,12 @@ class SessionManager: ObservableObject {
         }
     }
     
-    func addSongToSession(sessionId: String, song: Song) {
-        guard let index = sessions.firstIndex(where: { $0.id == sessionId }) else { return }
+    func addSongToSession(sessionId: String, song: Song) -> Bool {
+        guard let index = sessions.firstIndex(where: { $0.id == sessionId }) else { 
+            sessionError = .sessionNotFound("Session not found: \(sessionId)")
+            errorService.reportError(sessionError!)
+            return false
+        }
         
         if sessions[index].songs == nil {
             sessions[index].songs = []
@@ -312,7 +358,7 @@ class SessionManager: ObservableObject {
         sessions[index].songs?.append(song)
         
         // Save to CoreData
-        coreDataManager.performBackgroundTask { context in
+        let result = performBackgroundTask { context in
             // Find the session entity
             let fetchRequest: NSFetchRequest<SessionEntity> = SessionEntity.fetchRequest()
             fetchRequest.predicate = NSPredicate(format: "id == %@", sessionId)
@@ -331,10 +377,24 @@ class SessionManager: ObservableObject {
                     let mutableSongs = sessionEntity.songs?.mutableCopy() as? NSMutableSet
                     mutableSongs?.add(songEntity)
                     sessionEntity.songs = mutableSongs
+                    
+                    try context.save()
+                    return .success(())
+                } else {
+                    return .failure(CoreDataError.entityNotFound)
                 }
             } catch {
-                print("Error fetching session for adding song: \(error)")
+                return .failure(CoreDataError.saveFailed(error.localizedDescription))
             }
+        }
+        
+        switch result {
+        case .success(_):
+            return true
+        case .failure(let error):
+            sessionError = .failedToUpdate("Failed to add song to session: \(error.localizedDescription)")
+            errorService.reportError(sessionError!)
+            return false
         }
     }
     
@@ -387,7 +447,7 @@ class SessionManager: ObservableObject {
     
     // Update session 
     func updateSession(_ session: Session) -> Bool {
-        let result = sessionDataManager.performBackgroundTask { context in
+        let result = performBackgroundTask { context in
             let saveResult = self.sessionDataManager.saveOrUpdate(
                 model: session, 
                 idValue: session.id, 
@@ -420,8 +480,8 @@ class SessionManager: ObservableObject {
     
     // Delete session
     func deleteSession(withID id: String) -> Bool {
-        // Use regular performBackgroundTask instead of performBackgroundTaskWithResult
-        let result = sessionDataManager.performBackgroundTask { context in
+        // Use our custom helper method
+        let result = performBackgroundTask { context in
             // Fetch the entity to delete
             let fetchRequest: NSFetchRequest<SessionEntity> = SessionEntity.fetchRequest()
             fetchRequest.predicate = NSPredicate(format: "id == %@", id)
@@ -442,7 +502,7 @@ class SessionManager: ObservableObject {
         }
         
         switch result {
-        case .success:
+        case .success(_):
             // Remove the session from the array
             DispatchQueue.main.async {
                 self.sessions.removeAll { $0.id == id }
@@ -453,6 +513,13 @@ class SessionManager: ObservableObject {
             errorService.reportError(sessionError!)
             return false
         }
+    }
+    
+    // MARK: - Protocol Conformance Methods
+    
+    // This method is a synonym for deleteSession(withID:) to fulfill protocol requirements
+    func cancelSession(withID id: String) -> Bool {
+        return deleteSession(withID: id)
     }
 }
 
@@ -484,18 +551,18 @@ enum SessionLibrary {
     /// - Parameters:
     ///   - studio: Studio to book
     ///   - mainProducer: Primary producer name
-    ///   - additionalProducers: Additional producers (optional)
     ///   - singers: Singers for the session
+    ///   - additionalProducers: Additional producers (optional)
     ///   - date: Session date
     ///   - duration: Session duration in minutes
     /// - Returns: Success indicator
-    static func bookSession(studio: Studio, mainProducer: String, additionalProducers: [String] = [], 
-                           singers: [String], date: Date, duration: TimeInterval) -> Bool {
+    static func bookSession(studio: Studio, mainProducer: String, singers: [String], additionalProducers: [String] = [], 
+                           date: Date, duration: TimeInterval) -> Bool {
         return manager.bookSession(
             studio: studio,
             mainProducer: mainProducer,
-            additionalProducers: additionalProducers,
             singers: singers,
+            additionalProducers: additionalProducers,
             date: date,
             duration: duration
         )
@@ -538,8 +605,10 @@ enum SessionLibrary {
     /// - Parameters:
     ///   - sessionId: Session ID
     ///   - song: Song to add
-    static func addSongToSession(sessionId: String, song: Song) {
-        manager.addSongToSession(sessionId: sessionId, song: song)
+    /// - Returns: Success indicator
+    @discardableResult
+    static func addSongToSession(sessionId: String, song: Song) -> Bool {
+        return manager.addSongToSession(sessionId: sessionId, song: song)
     }
     
     /// Load all sessions from storage

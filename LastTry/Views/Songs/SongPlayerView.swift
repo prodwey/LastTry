@@ -5,6 +5,9 @@ struct SongPlayerView: View {
     @EnvironmentObject var appState: AppState
     let song: Song
     
+    // Get services from ServiceLocator
+    private let audioService = ServiceLocator.shared.resolve(AudioServiceProtocol.self)
+    
     @State private var currentTime: TimeInterval = 0
     @State private var sliderValue: Double = 0
     @State private var isEditing = false
@@ -136,8 +139,10 @@ struct SongPlayerView: View {
     private func startTimer() {
         timer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { [self] _ in
             if !isEditing && appState.isPlaying {
-                self.currentTime = appState.audioService.currentTime
-                self.sliderValue = self.currentTime
+                if let audioService = self.audioService {
+                    self.currentTime = audioService.currentTime
+                    self.sliderValue = self.currentTime
+                }
             }
         }
     }
